@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<relations format-version="3" relations-version="1" main-table="ALDataSource" file-name="ALDataSource-(Name)">
+  <link from="ALDataElement (SourceID)" to="ALDataSource (SourceID)" updateable="true" type="Weak"/>
+  <link from="ALCategory (CategoryID)" to="ALDataElement (CategoryID)" type="Weak" updateable="true"/>
+  <link from="ALBarcode (BarcodeID)" to="ALDataElement (BarcodeID)" type="Weak" updateable="true"/>
+  <link from="ALBarcodeOption (BarcodeID)" to="ALBarcode (BarcodeID)" type="Weak" updateable="true"/>
+  <link from="ALSubstitution (SubstitutionID)" to="ALDataElement (SubstitutionID)" type="Weak" updateable="true"/>
+  <link from="ALSubstitutionDetail (SubstitutionID)" to="ALSubstitution (SubstitutionID)" type="Weak" updateable="true"/>
+  <link from="ALContent (ContentID)" to="ALDataElement (ContentID)" type="Weak" updateable="true"/>
+  <link from="ALContentElement (ContentID)" to="ALContent (ContentID)" type="Weak" updateable="true"/>
+  <link from="ALDataSource (NoteID)" to="Note (NoteID)" type="Note" />
+  <link from="ALDataElement (NoteID)" to="Note (NoteID)" type="Note" />
+</relations>

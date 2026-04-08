@@ -1,0 +1,63 @@
+<template>
+	<qp-tabbar id="tabBar">
+		<qp-tab id="tabBasicSettings" caption="Basic Settings" class="label-size-xm">
+			<qp-template name="1-1" id="formLabelBasicPreferences" wg-container="Setup_tab">
+				<div id="columnFirst" slot="A">
+					<qp-fieldset id="groupRendering" view.bind="Setup" caption="Labelary Integration">
+						<field name="LabelaryAPI" config-allow-edit.bind="true" control-type="qp-link-editor"></field>
+						<field name="LabelaryAPIKey" config-allow-edit.bind="true">
+							<qp-button id="btnValidateLabelary" state.bind="ValidateLabelary" class="col-3"></qp-button>
+						</field>
+					</qp-fieldset>
+					<qp-fieldset id="groupPrintNodeSettings" view.bind="Setup" caption="Cloud Print Integration">
+						<field name="PrintNodeAPI" control-type="qp-link-editor"></field>
+						<field name="PrintNodeAPIKey">
+							<qp-button id="btnValidatePrintNode" state.bind="ValidatePrintNode" class="col-3"></qp-button>
+						</field>
+					</qp-fieldset>
+					<qp-fieldset id="groupLabelZoom" view.bind="Setup" caption="LabelZoom Integration">
+						<field name="LabelZoomAPI" control-type="qp-link-editor"></field>
+						<field name="LabelZoomAPIKey"></field>
+						<field name="LabelZoomCategoryID"></field>
+						<field name="LabelZoomImageSubstitutionID">
+							<qp-button id="btnValidateLabelZoom" state.bind="ValidateLabelZoom" class="col-3"></qp-button>
+						</field>
+					</qp-fieldset>
+					<qp-fieldset id="groupMongoDb" view.bind="Setup" caption="Mongo Db Integration">
+						<field name="MongoURL" control-type="qp-link-editor"></field>
+						<field name="MongoOptions">
+							<qp-button id="btnValidateMongoDb" state.bind="ValidateMongoDb" class="col-3"></qp-button>
+						</field>
+					</qp-fieldset>
+					<qp-fieldset id="groupModelSettings" view.bind="Setup" caption="Model Settings">
+						<field name="ZplGraphicCreator"></field>
+						<field name="DefaultLanguage"></field>
+						<field name="DefaultFormatID"></field>
+						<field name="DefaultMarginID"></field>
+						<field name="DefaultCategoryID"></field>
+					</qp-fieldset>
+				</div>
+				<div id="columnSecond" slot="B">
+					<qp-fieldset id="groupLabelIntegrations" view.bind="Setup" caption="Label Integrations">
+						<field name="EnableIntegration" config-allow-edit.bind="true"></field>
+					</qp-fieldset>
+					<qp-fieldset id="groupPrinterOverride" view.bind="Setup" caption="Printer Override">
+						<field name="EnablePrinterOverride"></field>
+					</qp-fieldset>
+					<qp-fieldset id="groupNbCopies" view.bind="Setup" caption="Nb Copies Settings">
+						<field name="EnableCopiesOverride"></field>
+					</qp-fieldset>
+					<qp-fieldset id="groupOtherIntegrations" view.bind="Setup" caption="Other Options">
+						<field name="NbDaysToKeep"></field>
+						<field name="DevMode"></field>
+						<field name="RecordImportMode"></field>
+					</qp-fieldset>
+				</div>
+			</qp-template>
+		</qp-tab>
+		<qp-tab id="tabRenderers" caption="Renderers">
+			<qp-grid id="gridRenderers" view.bind="Renderers">
+			</qp-grid>
+		</qp-tab>
+	</qp-tabbar>
+</template>

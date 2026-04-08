@@ -1,0 +1,79 @@
+<template>
+    <qp-upload-dialog id="uploadFileDialog"
+                      caption="Upload XML Zip"
+                      key="Document"
+                      session-key="XmlUploadAllEntities"
+                      allowed-types=".zip"></qp-upload-dialog>
+    <qp-template id="form_20" name="1-1" qp-collapsible="true" class="equal-height">
+        <qp-fieldset id="Document_form0_fs0"
+                     wg-container="Document_form"
+                     view.bind="Document"
+                     slot="A">
+            <field name="Name"></field>
+            <field name="Description"></field>
+            <field name="ScreenID"></field>
+            <field name="GraphType"></field>
+            <field name="CategoryID" config-allow-edit.bind="true"></field>
+            <field name="Expression" pinned class="adaptive-height" config-type.bind="1" config-rows.bind="4"></field>
+        </qp-fieldset>
+        <qp-fieldset id="Document_form1_fs1"
+                     wg-container="Document_form"
+                     view.bind="Document"
+                     slot="B" pinned="false">
+            <field name="Active"></field>
+            <field name="IsSystem"></field>
+            <field name="AllowExport"></field>
+            <field name="IsComposite"></field>
+            <!--<using view="CurrentDocument"
+                   id="usCurrentDocument_VisibilityForm1"
+                   wg-container="CurrentDocument_VisibilityForm">
+                <field name="ShowExpr" pinned="false"></field>
+                <field name="ShowUsedBy" pinned="false"></field>
+                <field name="ShowChildren" pinned="false"></field>
+            </using>-->
+        </qp-fieldset>
+    </qp-template>
+    <qp-tabbar id="tab">
+        <qp-tab id="tab0" caption="Rule Details" visible.bind="Document.ShowChildren.value === true">
+            <qp-grid id="subGrid" view.bind="Details"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab1" caption="Used by Models" visible.bind="Document.ShowUsedBy.value === true">
+            <qp-grid id="gridUsedByModels" view.bind="UsedByModels"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab2" caption="Used by Expressions" visible.bind="Document.ShowUsedBy.value === true">
+            <qp-grid id="gridUsedByExpressions" view.bind="UsedByExprs"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab3" caption="Used by Composites" visible.bind="Document.ShowExpr.value === true">
+            <qp-grid id="gridUsedByComposites" view.bind="UsedByComposites"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab4" caption="Used by Colors" visible.bind="Document.ShowUsedBy.value === true">
+            <qp-grid id="gridUsedByColors" view.bind="UsedByColors"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab5" caption="Used by Formats" visible.bind="Document.ShowUsedBy.value === true">
+            <qp-grid id="gridUsedByFormats" view.bind="UsedByFormats"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab6" caption="Used by Content Elements" visible.bind="Document.ShowUsedBy.value === true">
+            <qp-grid id="gridUsedByContentElements"
+                     view.bind="UsedByContentElements"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab7" caption="Used by Auto Prints" visible.bind="Document.ShowUsedBy.value === true">
+            <qp-grid id="gridUsedByAutoPrints" view.bind="UsedByAutoPrints"></qp-grid>
+        </qp-tab>
+    </qp-tabbar>
+    <qp-panel id="ChangeIDDialog" caption="Specify New ID" auto-repaint="true">
+        <qp-fieldset id="ChangeIDDialog_rlAcctCD_fs0"
+                     wg-container="ChangeIDDialog_formChangeID"
+                     view.bind="ChangeIDDialog">
+            <field name="Name"></field>
+        </qp-fieldset>
+        <footer>
+            <qp-button id="btnOK"
+                       caption="OK"
+                       state.bind="Save"
+                       dialog-result="OK"></qp-button>
+            <qp-button id="PXButton3"
+                       caption="Cancel"
+                       dialog-result="Cancel"></qp-button>
+        </footer>
+    </qp-panel>
+</template>

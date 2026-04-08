@@ -1,0 +1,77 @@
+<template>
+    <qp-upload-dialog id="uploadFileDialog"
+                      caption="Upload XML Zip"
+                      key="Document"
+                      session-key="XmlUploadAllEntities"
+                      allowed-types=".zip"></qp-upload-dialog>
+    <qp-template id="form_20" name="1-1" qp-collapsible="true" class="equal-height">
+        <qp-fieldset id="Document_form0_fs0"
+                     wg-container="Document_form"
+                     view.bind="Document"
+                     slot="A">
+            <field name="Name"></field>
+            <field name="Description"></field>
+        </qp-fieldset>
+        <qp-fieldset id="Document_form1_fs1"
+                     wg-container="Document_form"
+                     view.bind="Document"
+                     slot="B">
+            <field name="Active"></field>
+            <field name="IsSystem"></field>
+            <field name="AllowExport"></field>
+        </qp-fieldset>
+    </qp-template>
+    <qp-tabbar id="tab">
+        <qp-tab id="tab0" caption="Models">
+            <qp-grid id="gridUsedByModels" view.bind="UsedByModels"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab1" caption="Data Elements">
+            <qp-grid id="gridDataElements" view.bind="UsedByDataElements"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab2" caption="Contents">
+            <qp-grid id="gridUsedByContents" view.bind="UsedByContents"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab3" caption="Substitutions">
+            <qp-grid id="gridUsedBySubstitutions"
+                     view.bind="UsedBySubstitutions"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab4" caption="Colors">
+            <qp-grid id="gridUsedByColors" view.bind="UsedByColors"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab5" caption="Rules">
+            <qp-grid id="gridUsedByRules" view.bind="UsedByRules"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab6" caption="Formats">
+            <qp-grid id="gridUsedByFormats" view.bind="UsedByFormats"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab7" caption="Margins">
+            <qp-grid id="gridUsedByMargins" view.bind="UsedByMargins"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab8" caption="Justifications">
+            <qp-grid id="gridUsedByJustifications"
+                     view.bind="UsedByJustifications"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab9" caption="Barcodes">
+            <qp-grid id="gridUsedByBarcodes" view.bind="UsedByBarcodes"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab10" caption="Fonts">
+            <qp-grid id="gridUsedByFonts" view.bind="UsedByFonts"></qp-grid>
+        </qp-tab>
+    </qp-tabbar>
+    <qp-panel id="ChangeIDDialog" caption="Specify New ID" auto-repaint="true">
+        <qp-fieldset id="ChangeIDDialog_rlAcctCD_fs0"
+                     wg-container="ChangeIDDialog_formChangeID"
+                     view.bind="ChangeIDDialog">
+            <field name="Name"></field>
+        </qp-fieldset>
+        <footer>
+            <qp-button id="btnOK"
+                       caption="OK"
+                       state.bind="Save"
+                       dialog-result="OK"></qp-button>
+            <qp-button id="PXButton3"
+                       caption="Cancel"
+                       dialog-result="Cancel"></qp-button>
+        </footer>
+    </qp-panel>
+</template>

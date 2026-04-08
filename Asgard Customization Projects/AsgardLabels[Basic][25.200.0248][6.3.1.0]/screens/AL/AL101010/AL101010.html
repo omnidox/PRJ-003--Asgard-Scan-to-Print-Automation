@@ -1,0 +1,22 @@
+<template>
+    <qp-upload-dialog id="uploadFileDialog"
+                      caption="Upload XML Zip"
+                      key="Setup"
+                      session-key="DoImportFilesFromZip"
+                      allowed-types=".zip" 
+                      renderComment="true"
+                      renderLink="true"
+                      autoSaveFile="false"
+                      renderCheckIn="false"></qp-upload-dialog>
+    <qp-tabbar id="tab">
+        <qp-tab id="tab0" caption="Images">
+            <qp-grid id="ImagesGrid" view.bind="ImageFiles"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab1" caption="Fonts">
+            <qp-grid id="FontsGrid" view.bind="FontFiles"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab2" caption="Others">
+            <qp-grid id="OthersGrid" view.bind="OtherFiles"></qp-grid>
+        </qp-tab>
+    </qp-tabbar>
+</template>

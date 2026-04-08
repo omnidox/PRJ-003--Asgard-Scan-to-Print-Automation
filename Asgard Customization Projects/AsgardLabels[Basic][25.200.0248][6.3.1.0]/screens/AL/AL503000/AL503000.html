@@ -1,0 +1,51 @@
+<template>
+    <qp-splitter id="splitRender" split="width" initial-split="75%" state="normal" last-pane-min-size="200">
+        <split-pane>
+            <qp-template id="filter_form"
+                         name="1-1"
+                         qp-collapsible="true" class="equal-height"
+                         wg-container="">
+                <qp-fieldset id="groupFilter1" slot="A" view.bind="Filter">
+                    <field name="Action"></field>
+                    <field name="StartDate"></field>
+                    <field name="EndDate"></field>
+                    <field name="ContentType"></field>
+                    <field name="UserID"></field>
+                    <field name="OwnerID"></field>
+                    <field name="BAccountID"></field>
+                    <field name="ModelID"></field>
+                </qp-fieldset>
+                <qp-fieldset id="groupFilter2" slot="B" view.bind="Filter">
+                    <field name="ScreenID"></field>
+                    <field name="InventoryID"></field>
+                    <field name="LotSerialNbr"></field>
+                    <field name="LabelKey"></field>
+                    <field name="PrinterID"></field>
+                    <field name="NewPrinterID"></field>
+                    <field name="PrintStationID"></field>
+                    <field name="FormatID"></field>
+                    <field name="LabelFilename"></field>
+                </qp-fieldset>
+            </qp-template>
+            <qp-tabbar id="tab">
+                <qp-tab id="tab0" caption="Labels">
+                    <qp-grid id="gridRecords" view.bind="Records"></qp-grid>
+                </qp-tab>
+            </qp-tabbar>
+        </split-pane>
+        <split-pane>
+            <qp-template id="ImageViewer_formPhoto"
+                         name="1"
+                         wg-container="">
+                <qp-fieldset id="groupImageViewer"
+                             wg-container
+                             view.bind="ImageViewer" slot="A">
+                    <field name="ImageUrl"
+                           control-type="qp-image-view"
+                           width="250px"
+                           height="300px"></field>
+                </qp-fieldset>
+            </qp-template>
+        </split-pane>
+    </qp-splitter>
+</template>

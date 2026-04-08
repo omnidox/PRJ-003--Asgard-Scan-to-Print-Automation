@@ -1,0 +1,159 @@
+<template>
+    <qp-upload-dialog id="uploadFileDialog"
+                      caption="Upload XML Zip"
+                      key="Model"
+                      session-key="XmlUploadAllEntities"
+                      allowed-types=".zip"></qp-upload-dialog>
+    <qp-upload-dialog id="uploadFileDialog"
+                      caption="Upload Label Zoom XML"
+                      key="Model__LabelZoom"
+                      session-key="XmlUploadLabelZoom"
+                      allowed-types=".lbxml"></qp-upload-dialog>
+    <qp-splitter id="splitRender" split="width" initial-split="75%" state="normal" last-pane-min-size="200">
+        <split-pane>
+            <qp-template id="model_form"
+                         name="1-1"
+                         qp-collapsible=""
+                         wg-container="" class="equal-height">
+                <qp-fieldset id="group1" slot="A" view.bind="Model">
+                    <field name="Name"></field>
+                    <field name="LabelID"></field>
+                    <field name="Description"></field>
+                    <field name="ModelType"></field>
+                    <field name="CloudID"></field>
+                    <field name="ScreenID"></field>
+                    <field name="GraphType"></field>
+                    <field name="BasedOnView"></field>
+                    <field name="Message" config-type.bind="1" config-rows.bind="2"></field>
+                </qp-fieldset>
+                <qp-fieldset id="group2" slot="B" view.bind="Model">
+                    <field name="Active"></field>
+                    <field name="AllowExport"></field>
+                    <field name="IsSystem"></field>
+                    <field name="HideWhenInGroup"></field>
+                    <field name="IgnoreRotationOnRender"></field>
+                    <field name="FormatID"></field>
+                    <field name="MarginID"></field>
+                </qp-fieldset>
+            </qp-template>
+            <qp-tabbar id="tab">
+                <qp-tab id="tab0" caption="Template" visible.bind="CurrentModel.ShowTemplate.value === true">
+                    <qp-template id="templateDataForm" name="1">
+                        <qp-fieldset id="group1" slot="A" view.bind="CurrentModel">
+                            <field name="Body" config-type.bind="1" config-rows.bind="32" pinned="true"></field>
+                        </qp-fieldset>
+                    </qp-template>
+                </qp-tab>
+                <qp-tab id="tab1" caption="Expressions" visible.bind="CurrentModel.ShowExprs.value === true">
+                    <qp-grid id="gridExpressions" view.bind="Expressions"></qp-grid>
+                </qp-tab>
+                <qp-tab id="tab2" caption="Graphics" visible.bind="CurrentModel.ShowExprs.value === true">
+                    <qp-grid id="gridGraphics" view.bind="Graphics"></qp-grid>
+                </qp-tab>
+                <qp-tab id="tab3" caption="Printers" visible.bind="CurrentModel.ShowPrinters.value === true">
+                    <qp-grid id="gridPrinters" view.bind="Printers"></qp-grid>
+                </qp-tab>
+                <qp-tab id="tab4" caption="Child Labels" visible.bind="CurrentModel.ShowChildren.value === true">
+                    <qp-grid id="childrenGrid" view.bind="Children"></qp-grid>
+                </qp-tab>
+                <qp-tab id="tab5" caption="Rendered" visible.bind="CurrentModel.ShowRendered.value === true">
+                    <qp-template id="renderedDataForm" name="1">
+                        <qp-fieldset id="group1" slot="A" view.bind="CurrentModel">
+                            <field name="Rendered" config-type.bind="1" config-rows.bind="32" pinned="true"></field>
+                        </qp-fieldset>
+                    </qp-template>
+                </qp-tab>
+                <qp-tab id="tab6" caption="Setup" visible.bind="CurrentModel.ShowSetup.value === true">
+                    <qp-template id="setupDataForm" name="1-1">
+                        <qp-fieldset id="group1" slot="A" view.bind="CurrentModel" pinned="true">
+                            <field name="FilterRuleID" pinned="true"></field>
+                            <field name="ReverseFilter" pinned="true"></field>
+                            <field name="HideInstead" pinned="true"></field>
+                            <field name="PrintRuleID" pinned="true"></field>
+                            <field name="ReversePrint" pinned="true"></field>
+                            <field name="Language" pinned="true"></field>
+                            <field name="PrintOnOtherDensity" pinned="true"></field>
+                            <field name="Tooltip" pinned="true"></field>
+                            <field name="DealingMode" pinned="true"></field>
+                            <field name="DealingCountExpr" pinned="true"></field>
+                        </qp-fieldset>
+                        <qp-fieldset id="group2" slot="B" view.bind="CurrentModel" pinned="true">
+                            <field name="MergeDetails" pinned="true"></field>
+                            <field name="PrintDetails" pinned="true"></field>
+                            <field name="NbCopiesExpr" pinned="true"></field>
+                            <field name="SendPauseEvery" pinned="true"></field>
+                            <field name="NumberingID" pinned="true"></field>
+                            <field name="DefaultSize" pinned="true"></field>
+                            <field name="SizeUnit" pinned="true"></field>
+                            <field name="Encoding" pinned="true"></field>
+                            <field name="CategoryID" pinned="true"></field>
+                        </qp-fieldset>
+                    </qp-template>
+                </qp-tab>
+                <qp-tab id="tab7" caption="Used By Data Elements" visible.bind="CurrentModel.ShowUsedBy.value === true">
+                    <qp-grid id="gridUsedByDataElements" view.bind="UsedByDataElements"></qp-grid>
+                </qp-tab>
+                <qp-tab id="tab8" caption="Print Log" visible.bind="CurrentModel.ShowPrintLog.value === true">
+                    <qp-grid id="printLogGrid" view.bind="PrintLog"></qp-grid>
+                </qp-tab>
+            </qp-tabbar>
+        </split-pane>
+        <split-pane>
+            <qp-template id="ImageViewer_formPhoto"
+                         name="1"
+                         wg-container="">
+                <qp-fieldset id="groupImageViewer"
+                             wg-container
+                             view.bind="CurrentModel" slot="A">
+                    <field name="ImageUrl"
+                           control-type="qp-image-view"
+                           width="250px"
+                           height="300px"></field>
+                </qp-fieldset>
+            </qp-template>
+        </split-pane>
+    </qp-splitter>
+    <qp-panel id="ChangeIDDialog" caption="Specify New ID" auto-repaint="true">
+        <qp-fieldset id="ChangeIDDialog_rlAcctCD_fs0"
+                     wg-container="ChangeIDDialog_formChangeID"
+                     view.bind="ChangeIDDialog">
+            <field name="Name"></field>
+        </qp-fieldset>
+        <footer>
+            <qp-button id="btnOK"
+                       caption="OK"
+                       state.bind="Save"
+                       dialog-result="OK"></qp-button>
+            <qp-button id="PXButton3"
+                       caption="Cancel"
+                       dialog-result="Cancel"></qp-button>
+        </footer>
+    </qp-panel>
+    <qp-panel id="dataElementFilter"
+              caption="Load Data Elements"
+              auto-repaint="true">
+        <qp-template id="frmAddDataElementFilter_20" name="1-1" qp-collapsible>
+            <qp-fieldset id="DataElementFilter_frmAddDataElementFilter0_fs0"
+                         wg-container="DataElementFilter_frmAddDataElementFilter"
+                         view.bind="DataElementFilter"
+                         slot="A">
+                <field name="ExprType"></field>
+                <field name="BasedOn"></field>
+                <field name="ExprValue"></field>
+                <field name="WithBarcode"></field>
+            </qp-fieldset>
+            <qp-fieldset id="DataElementFilter_frmDaElColumn2_fs1"
+                         wg-container="DataElementFilter_frmAddDataElementFilter"
+                         view.bind="DataElementFilter"
+                         slot="B">
+                <field name="CategoryID"></field>
+                <field name="ContentID"></field>
+                <field name="SubstitutionID"></field>
+            </qp-fieldset>
+        </qp-template>
+        <qp-grid id="gridDataElements"
+                 batchUpdate="True"
+                 view.bind="SelectedDataElements"></qp-grid>
+        <footer></footer>
+    </qp-panel>
+</template>

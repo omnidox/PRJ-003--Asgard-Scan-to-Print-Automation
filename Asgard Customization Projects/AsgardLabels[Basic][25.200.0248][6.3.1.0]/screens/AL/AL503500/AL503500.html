@@ -1,0 +1,30 @@
+<template>
+  <qp-template id="form_20" name="1-1" qp-collapsible="true" class="equal-height">
+    <qp-fieldset
+      id="Filter_form0_fs0"
+      wg-container="Filter_form"
+      view.bind="Filter"
+      slot="A"
+    >
+      <field name="Action"></field>
+      <field name="StartDate"></field>
+      <field name="EndDate"></field>
+      <field name="ContentType"></field>
+      <field name="UserID"></field>
+    </qp-fieldset>
+    <qp-fieldset
+      id="Filter_form1_fs1"
+      wg-container="Filter_form"
+      view.bind="Filter"
+      slot="B"
+    >
+      <field name="PrintNodeComputerID"></field>
+      <field name="PrintNodePrinterID"></field>
+    </qp-fieldset>
+  </qp-template>
+  <qp-tabbar id="tab">
+    <qp-tab id="tab0" caption="Jobs">
+      <qp-grid id="grid" view.bind="Records"></qp-grid>
+    </qp-tab>
+  </qp-tabbar>
+</template>

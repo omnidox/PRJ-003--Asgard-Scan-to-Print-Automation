@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<relations format-version="3" relations-version="1" main-table="ALFormat" file-name="ALFormat-(Name)">
+  <link from="ALMargin (MarginID)" to="ALFormat (MarginID)" updateable="true" type="Weak" />
+  <link from="ALFormatRule (FormatID)" to="ALFormat (FormatID)" updateable="true" type="Weak" />
+  <link from="ALRule (RuleID)" to="ALFormatRule (RuleID)" updateable="true" type="Weak" />
+  <link from="ALFormat (NoteID)" to="Note (NoteID)" type="Note" />
+</relations>

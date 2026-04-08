@@ -1,0 +1,79 @@
+<template>
+    <qp-upload-dialog id="uploadFileDialog"
+                      caption="Upload XML Zip"
+                      key="Document"
+                      session-key="XmlUploadAllEntities"
+                      allowed-types=".zip"></qp-upload-dialog>
+    <qp-template id="Document_form0_30" name="1-1-1">
+        <qp-fieldset id="Document_form00_fs0"
+                     wg-container="Document_form"
+                     view.bind="Document"
+                     slot="A">
+            <field name="Name"></field>
+            <field name="Active">
+                <qp-field control-state.bind="Document.IsSystem"></qp-field>
+            </field>
+            <field name="AllowExport">
+                <qp-field control-state.bind="Document.IsComposite"></qp-field>
+            </field>
+            <using view="CurrentDocument"
+                   id="usCurrentDocument_VisibilityForm0"
+                   wg-container="CurrentDocument_VisibilityForm">
+                <field name="ShowChildren"></field>
+            </using>
+            <field name="Description"></field>
+            <field name="PrintDensityType"></field>
+            <field name="PrintDensity"></field>
+            <field name="Rotation"></field>
+        </qp-fieldset>
+        <qp-fieldset id="Document_form01_fs1"
+                     wg-container="Document_form"
+                     view.bind="Document"
+                     slot="B">
+            <field name="Width"></field>
+            <field name="Height"></field>
+            <field name="SizeUnit"></field>
+            <field name="WidthDots"></field>
+            <field name="HeightDots"></field>
+            <field name="MarginID" config-allow-edit.bind="true"></field>
+            <field name="CategoryID"></field>
+        </qp-fieldset>
+        <qp-fieldset id="Document_form02_fs2"
+                     wg-container="Document_form"
+                     view.bind="Document"
+                     slot="C">
+            <field name="UseWithPdf"></field>
+            <field name="PageSize"></field>
+            <field name="PageOrientation"></field>
+            <field name="PageHAlign"></field>
+            <field name="PageVAlign"></field>
+        </qp-fieldset>
+    </qp-template>
+    <qp-tabbar id="tab">
+        <qp-tab id="tab0" caption="Rule Details">
+            <qp-grid id="subGrid" view.bind="Rules"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab1" caption="Used By Models">
+            <qp-grid id="labelFormatGrid" view.bind="UsedByModels"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab2" caption="Used by Rules">
+            <qp-grid id="gridUsedByRules" view.bind="UsedByRules"></qp-grid>
+        </qp-tab>
+    </qp-tabbar>
+    <qp-panel id="ChangeIDDialog" caption="Specify New ID" auto-repaint="true">
+        <qp-fieldset id="ChangeIDDialog_Name"
+                     wg-container="ChangeIDDialog_formChangeID"
+                     view.bind="ChangeIDDialog">
+            <field name="Name"></field>
+        </qp-fieldset>
+        <footer>
+            <qp-button id="btnOK"
+                       caption="OK"
+                       state.bind="Save"
+                       dialog-result="OK"></qp-button>
+            <qp-button id="PXButton3"
+                       caption="Cancel"
+                       dialog-result="Cancel"></qp-button>
+        </footer>
+    </qp-panel>
+</template>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<relations format-version="3" relations-version="1" main-table="ALAutoPrint" file-name="ALAutoPrint-(Name)">
+  <link from="ALRule (RuleID)" to="ALAutoPrint (RuleID)" type="Weak" updateable="true"/>
+  <link from="ALCategory (CategoryID)" to="ALRule (CategoryID)" type="Weak" updateable="true"/>
+  <link from="ALAutoPrint (NoteID)" to="Note (NoteID)" type="Note" />
+</relations>

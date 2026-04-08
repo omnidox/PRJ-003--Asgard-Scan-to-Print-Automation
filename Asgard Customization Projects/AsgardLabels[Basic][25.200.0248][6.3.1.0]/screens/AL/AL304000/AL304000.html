@@ -1,0 +1,62 @@
+<template>
+    <qp-upload-dialog id="uploadFileDialog"
+                      caption="Upload XML Zip"
+                      key="Document"
+                      session-key="XmlUploadAllEntities"
+                      allowed-types=".zip"></qp-upload-dialog>
+    <qp-template id="Document_form0_30" name="17-17-14" qp-collapsible="true" class="equal-height">
+        <qp-fieldset id="Document_form00_fs0"
+                     wg-container="Document_form"
+                     view.bind="Document"
+                     slot="A">
+            <field name="Name"></field>
+            <field name="Description"></field>
+            <field name="Justification"></field>
+            <field name="CategoryID"></field>
+            <field name="FromX"></field>
+            <field name="ToX"></field>
+            <!--<field name="FromX">
+                <qp-field id="ToX" control-state.bind="Document.ToX"></qp-field>
+            </field>-->
+
+        </qp-fieldset>
+        <qp-fieldset id="Document_form01_fs1"
+                     wg-container="Document_form"
+                     view.bind="Document"
+                     slot="B">
+            <field name="MaxLines"></field>
+            <field name="SizeUnit"></field>
+            <field name="SpaceBetweenLines"></field>
+            <field name="HangingIndent"></field>
+        </qp-fieldset>
+        <qp-fieldset id="Document_form02_fs2"
+                     wg-container="Document_form"
+                     view.bind="Document"
+                     slot="C">
+            <field name="Active"></field>
+            <field name="IsSystem"></field>
+            <field name="AllowExport"></field>
+        </qp-fieldset>
+    </qp-template>
+    <qp-tabbar id="tab">
+        <qp-tab id="tab0" caption="Used By Models">
+            <qp-grid id="gridUsedByModels" view.bind="UsedByModels"></qp-grid>
+        </qp-tab>
+    </qp-tabbar>
+    <qp-panel id="ChangeIDDialog" caption="Specify New ID" auto-repaint="true">
+        <qp-fieldset id="ChangeIDDialog_rlAcctCD_fs0"
+                     wg-container="ChangeIDDialog_formChangeID"
+                     view.bind="ChangeIDDialog">
+            <field name="Name"></field>
+        </qp-fieldset>
+        <footer>
+            <qp-button id="btnOK"
+                       caption="OK"
+                       state.bind="Save"
+                       dialog-result="OK"></qp-button>
+            <qp-button id="PXButton3"
+                       caption="Cancel"
+                       dialog-result="Cancel"></qp-button>
+        </footer>
+    </qp-panel>
+</template>

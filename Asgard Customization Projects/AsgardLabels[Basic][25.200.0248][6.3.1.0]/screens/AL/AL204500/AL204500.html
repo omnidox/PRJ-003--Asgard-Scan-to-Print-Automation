@@ -1,0 +1,44 @@
+<template>
+	<qp-upload-dialog id="uploadFileDialog"
+					  caption="Upload XML Zip"
+					  key="Document"
+					  session-key="XmlUploadAllEntities"
+					  allowed-types=".zip"></qp-upload-dialog>
+	<qp-template id="form-PrintStation" name="1" qp-collapsible="true" class="equal-height" wg-container="Document_form">
+		<qp-fieldset id="fsheaderColumn1" slot="A" view.bind="Document">
+			<field name="Name"></field>
+			<field name="Description"></field>
+			<field name="Active"></field>
+			<field name="AllowExport"></field>
+		</qp-fieldset>
+
+	</qp-template>
+
+	<qp-tabbar id="tabbar">
+		<qp-tab id="tab-UsedByPrinters" caption="Used By Printers">
+			<qp-grid id="grid-UsedByPrinters" view.bind="UsedByPrinters" wg-container="UsedByPrinters_grid"></qp-grid>
+		</qp-tab>
+		<qp-tab id="tab-UsedByModelPrinters" caption="Used By Model Printers">
+			<qp-grid id="grid-UsedByModelPrinters" view.bind="UsedByModelPrinters" wg-container="UsedByModelPrinters_grid"></qp-grid>
+		</qp-tab>
+		<qp-tab id="tab-UsedByUsers" caption="Used By Users">
+			<qp-grid id="grid-UsedByUsers" view.bind="UsedByUsers" wg-container="UsedByUsers_grid"></qp-grid>
+		</qp-tab>
+	</qp-tabbar>
+	<qp-panel id="ChangeIDDialog" caption="Specify New ID" auto-repaint="true">
+		<qp-fieldset id="ChangeIDDialog_rlAcctCD_fs0"
+					 wg-container="ChangeIDDialog_formChangeID"
+					 view.bind="ChangeIDDialog">
+			<field name="Name"></field>
+		</qp-fieldset>
+		<footer>
+			<qp-button id="btnOK"
+					   caption="OK"
+					   state.bind="Save"
+					   dialog-result="OK"></qp-button>
+			<qp-button id="PXButton3"
+					   caption="Cancel"
+					   dialog-result="Cancel"></qp-button>
+		</footer>
+	</qp-panel>
+</template>

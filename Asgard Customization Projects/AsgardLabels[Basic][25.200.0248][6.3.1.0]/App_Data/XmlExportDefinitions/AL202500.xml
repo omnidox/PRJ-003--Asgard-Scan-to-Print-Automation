@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<relations format-version="3" relations-version="1" main-table="ALColor" file-name="ALColor-(Name)">
+  <link from="ALColorRule (ColorID)" to="ALColor (ColorID)" updateable="true" type="Weak" />
+  <link from="ALRule (RuleID)" to="ALColorRule (RuleID)" updateable="true" type="Weak" />
+  <link from="ALColor (NoteID)" to="Note (NoteID)" type="Note" />
+</relations>

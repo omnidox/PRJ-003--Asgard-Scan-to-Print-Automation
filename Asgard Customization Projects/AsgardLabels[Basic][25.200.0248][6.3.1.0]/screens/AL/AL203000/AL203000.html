@@ -1,0 +1,107 @@
+<template>
+	<qp-upload-dialog id="uploadFileDialog"
+					  caption="Upload XML Zip"
+					  key="Printer"
+					  session-key="XmlUploadAllEntities"
+					  allowed-types=".zip"></qp-upload-dialog>
+	<qp-template id="form-PrinterLevel1" name="17-14-17" class="equal-height" qp-collapsible="false" wg-container="Printer_form">
+		<qp-fieldset id="fsheaderLevel1Column1" slot="A" view.bind="Printer">
+			<field name="Name" pinned="true"></field>
+			<field name="Description" pinned="true"></field>
+			<field name="PrinterType"></field>
+			<field name="FormatID"></field>
+			<field name="MarginID"></field>
+			<field name="ContentType"></field>
+			<field name="PrintStationID"></field>
+		</qp-fieldset>
+		<qp-fieldset id="fsheaderColumn2" slot="B" view.bind="Printer">
+			<field name="Active" pinned="true"></field>
+			<field name="IsSystem" pinned="true"></field>
+			<field name="AllowExport"></field>
+			<field name="IsRendering"></field>
+			<field name="AllowOtherSize"></field>
+			<field name="SupportsLongFiles"></field>
+			<field name="PushFonts"></field>
+		</qp-fieldset>
+		<qp-fieldset id="fsheaderColumn3" slot="C" view.bind="Printer">
+			<field name="Printer.PrintNodeAPIKey" pinned="true"></field>
+			<field name="PrintNodeComputerID">
+				<qp-field class="no-label" control-state.bind="Printer.ComputerState"></qp-field>
+				<!--<qp-field control-type="qp-image-view" class="no-label" control-state.bind="Printer.ComputerStateIcon" width="90px"></qp-field>-->
+			</field>
+			<field name="PrintNodeComputerLink" control-type="qp-link-editor" class="no-label"></field>
+			<field name="PrintNodePrinterID">
+				<qp-field class="no-label" control-state.bind="Printer.PrinterState"></qp-field>
+				<!--<qp-field control-type="qp-image-view" class="no-label" control-state.bind="Printer.PrinterStateIcon" width="90px"></qp-field>-->
+			</field>
+			<field name="PrintNodePrinterLink" control-type="qp-link-editor" class="no-label"></field>
+			<field name="Encoding"></field>
+			<field name="IsEpson"></field>
+		</qp-fieldset>
+	</qp-template>
+	<qp-template id="form-PrinterLevel2" name="1" class="equal-height" qp-collapsible="false" wg-container="Printer_form">
+		<qp-fieldset id="fsheaderLevel2Column1" slot="A" view.bind="Printer">
+			<field name="MediaShape" pinned="true"></field>
+			<field name="MediaSource" pinned="true"></field>
+			<field name="MediaForm"></field>
+			<field name="MediaType"></field>
+			<field name="EdgeDetection"></field>
+			<field name="PrintMode"></field>
+			<field name="ScreenID"></field>
+			<field name="GraphType"></field>
+			<field name="FieldName"></field>
+			<!--<using view="CurrentPrinter" id="usCurrentPrinter_VisibilityForm2" wg-container="CurrentPrinter_VisibilityForm">
+				<field name="ShowFileTransfers"></field>
+				<field name="ShowChildren"></field>
+				<field name="ShowPrintJobs"></field>
+				<field name="ShowCapabilities"></field>
+			</using>-->
+		</qp-fieldset>
+	</qp-template>
+	<qp-tabbar id="tab">
+		<qp-tab id="tab0" caption="Used By">
+			<qp-grid id="labelPrinterGrid" view.bind="UsedBy"></qp-grid>
+		</qp-tab>
+		<qp-tab id="tab1" caption="Print Logs">
+			<qp-grid id="printLogsGrid" view.bind="PrintLogs"></qp-grid>
+		</qp-tab>
+		<qp-tab id="tab2" caption="Print Jobs">
+			<qp-grid id="printJobsGrid" view.bind="PrintJobs"></qp-grid>
+		</qp-tab>
+		<qp-tab id="tab3" caption="File Transfers">
+			<qp-grid id="printerFileGrid" view.bind="FileTransfers"></qp-grid>
+		</qp-tab>
+		<qp-tab id="tab4" caption="Capabilities">
+			<qp-fieldset id="CurrentPrinter_capabilitiesDataForm_fs0" wg-container view.bind="CurrentPrinter">
+				<field name="Capabilities" class="no-label"></field>
+			</qp-fieldset>
+		</qp-tab>
+	</qp-tabbar>
+	<qp-panel id="ChangeIDDialog" caption="Specify New ID" auto-repaint="true">
+		<qp-fieldset id="ChangeIDDialog_rlAcctCD_fs0"
+					 wg-container="ChangeIDDialog_formChangeID"
+					 view.bind="ChangeIDDialog">
+			<field name="Name"></field>
+		</qp-fieldset>
+		<footer>
+			<qp-button id="btnOK"
+					   caption="OK"
+					   state.bind="Save"
+					   dialog-result="OK"></qp-button>
+			<qp-button id="PXButton3"
+					   caption="Cancel"
+					   dialog-result="Cancel"></qp-button>
+		</footer>
+	</qp-panel>
+	<qp-panel id="PrinterCommandFilter" wg-container="PrinterCommandFilter_PrinterCommandFilter" caption="Send Command" auto-repaint="true">
+		<qp-fieldset id="PrinterCommand_Fields"
+					 wg-container="ChangeIDDialog_formChangeID"
+					 view.bind="PrinterCommandFilter">
+			<field name="Command"></field>
+			<field name="Content"></field>
+		</qp-fieldset>
+		<footer>
+			<qp-button id="btnDoSendCommand" caption="OK" dialog-result="OK"></qp-button>
+		</footer>
+	</qp-panel>
+</template>

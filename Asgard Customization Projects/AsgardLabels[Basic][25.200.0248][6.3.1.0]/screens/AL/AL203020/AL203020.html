@@ -1,0 +1,71 @@
+<template>
+  <qp-template id="Document_form0_30" name="17-14-17" qp-collapsible="true" class="equal-height">
+    <qp-fieldset
+      id="Document_form00_fs0"
+      wg-container="Document_form"
+      view.bind="Document"
+      slot="A">
+      <field name="Name"></field>
+      <field name="Active">
+        <qp-field control-state.bind="Document.AllowExport"></qp-field>
+        <qp-field control-state.bind="Document.IsComposite"></qp-field>
+      </field>
+      <field name="Description"></field>
+      <field name="FontStyle"></field>
+      <field name="FileName"></field>
+      <field name="ShortFileName"></field>
+      <field name="Status"></field>
+    </qp-fieldset>
+    <qp-fieldset
+      id="Document_form01_fs1"
+      wg-container="Document_form"
+      view.bind="Document"
+      slot="B"
+    >
+      <field name="Extension"></field>
+      <field name="Size"></field>
+      <field name="Width"></field>
+      <field name="Height"></field>
+      <field name="MaxWidth"></field>
+      <field name="MaxHeight"></field>
+      <field name="PixelFormat"></field>
+      <field name="Ascent"></field>
+      <field name="Descent"></field>
+      <field name="LineSpacing"></field>
+    </qp-fieldset>
+    <!--<qp-fieldset
+      id="CurrentDocument_VisibilityForm0_fs2"
+      wg-container="CurrentDocument_VisibilityForm"
+      view.bind="CurrentDocument"
+      slot="C"
+    >
+      <field name="ShowChildren" pinned="false"></field>
+    </qp-fieldset>-->
+    <qp-fieldset
+      id="CurrentDocument_templateDataForm_fs2"
+      wg-container
+      view.bind="CurrentDocument"
+      slot="C" >
+      <field
+        name="ImageUrl"
+        control-type="qp-image-view"
+        width="250px"
+        height="300px" pinned="true"
+      ></field>
+    </qp-fieldset>
+  </qp-template>
+  <qp-tabbar id="tab">
+    <qp-tab id="tab0" caption="Used By Data Elements">
+      <qp-grid
+        id="UsedByDataElementsGrid"
+        view.bind="UsedByDataElements"
+      ></qp-grid>
+    </qp-tab>
+    <qp-tab id="tab1" caption="Used By Fonts">
+      <qp-grid id="UsedByFontsGrid" view.bind="UsedByFonts"></qp-grid>
+    </qp-tab>
+    <qp-tab id="tab2" caption="Rule Details" visible.bind="CurrentDocument.chkShowChildren.value === true">
+      <qp-grid id="subGrid" view.bind="Rules"></qp-grid>
+    </qp-tab>
+  </qp-tabbar>
+</template>

@@ -1,0 +1,106 @@
+<template>
+    <qp-upload-dialog id="uploadFileDialog"
+                      caption="Upload XML Zip"
+                      key="Document"
+                      session-key="XmlUploadAllEntities"
+                      allowed-types=".zip"></qp-upload-dialog>
+    <qp-template id="Document_form00_10" name="1-1-1" qp-collapsible="true" class="equal-height">
+        <qp-fieldset id="Document_form00_fs0"
+                     wg-container="Document_form"
+                     view.bind="Document"
+                     slot="A">
+            <field name="Name" class="col-12"></field>
+            <field name="GenName">
+                <qp-field control-state.bind="Document.Active"></qp-field>
+                <qp-field control-state.bind="Document.IsSystem"></qp-field>
+            </field>
+            <field name="ExprType"></field>
+            <field name="SourceID" config-allow-edit.bind="true"></field>
+            <field name="BasedOn"></field>
+            <field name="ExprValue"></field>
+            <field name="SnippetID" config-allow-edit.bind="true"></field>
+            <field name="ContentID" config-allow-edit.bind="true"></field>
+            <field name="PrinterFileGUID" config-allow-edit.bind="true"></field>
+        </qp-fieldset>
+
+        <qp-fieldset id="Document_form01_fs1"
+                     wg-container="Document_form"
+                     view.bind="Document"
+                     slot="C">
+            <field name="Arg1">
+                <qp-field slot="label"
+                          class="no-label"
+                          control-state.bind="Document.ArgName1"></qp-field>
+            </field>
+            <!--</qp-fieldset>
+        <qp-fieldset id="Document_form02_fs0"
+                     wg-container="Document_form"
+                     view.bind="Document">-->
+            <field name="Arg2">
+                <qp-field slot="label"
+                          class="no-label"
+                          control-state.bind="Document.ArgName2"></qp-field>
+            </field>
+            <!--</qp-fieldset>
+        <qp-fieldset id="Document_form03_fs0"
+                     wg-container="Document_form"
+                     view.bind="Document">-->
+            <field name="Arg3">
+                <qp-field slot="label"
+                          class="no-label"
+                          control-state.bind="Document.ArgName3"></qp-field>
+            </field>
+            <!--</qp-fieldset>
+        <qp-fieldset id="Document_form04_fs0"
+                     wg-container="Document_form"
+                     view.bind="Document">-->
+            <field name="Arg4">
+                <qp-field slot="label"
+                          class="no-label"
+                          control-state.bind="Document.ArgName4"></qp-field>
+            </field>
+            <!--</qp-fieldset>
+        <qp-fieldset id="Document_form05_fs0"
+                     wg-container="Document_form"
+                     view.bind="Document">-->
+            <field name="Arg5">
+                <qp-field slot="label"
+                          class="no-label"
+                          control-state.bind="Document.ArgName5"></qp-field>
+            </field>
+            <!--</qp-fieldset>
+        <qp-fieldset id="Document_form06_fs0"
+                     wg-container="Document_form"
+                     view.bind="Document">-->
+            <field name="Arg6">
+                <qp-field slot="label"
+                          class="no-label"
+                          control-state.bind="Document.ArgName6"></qp-field>
+            </field>
+        </qp-fieldset>
+        <qp-fieldset id="Document_form07_fs0"
+                     wg-container="Document_form"
+                     view.bind="Document" slot="B">
+            <field name="DoSubstitute"></field>
+            <field name="SubstitutionID" config-allow-edit.bind="true"></field>
+            <field name="BarcodeID" config-allow-edit.bind="true"></field>
+            <field name="CategoryID" config-allow-edit.bind="true"></field>
+            <!--</qp-fieldset>
+        <qp-fieldset id="Document_form08_fs0"
+                     wg-container="Document_form"
+                     view.bind="Document">-->
+            <field name="SampleType"></field>
+            <field name="SampleBasedOn"></field>
+            <field name="SampleValue"></field>
+        </qp-fieldset>
+    </qp-template>
+    <qp-tabbar id="tab">
+        <qp-tab id="tab0" caption="Used By Models">
+            <qp-grid id="gridModels" view.bind="UsedByModels"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab1" caption="Used By Contents">
+            <qp-grid id="gridContents" view.bind="UsedByContents"></qp-grid>
+        </qp-tab>
+    </qp-tabbar>
+
+</template>

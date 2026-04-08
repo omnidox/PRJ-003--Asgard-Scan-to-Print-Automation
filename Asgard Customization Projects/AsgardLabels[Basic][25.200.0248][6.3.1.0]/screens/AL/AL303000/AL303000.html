@@ -1,0 +1,77 @@
+<template>
+    <qp-upload-dialog id="uploadFileDialog"
+                      caption="Upload XML Zip"
+                      key="Document"
+                      session-key="XmlUploadAllEntities"
+                      allowed-types=".zip"></qp-upload-dialog>
+    <qp-template id="Document_form0_20" name="1-1" qp-collapsible="true" class="equal-height">
+        <qp-fieldset id="Document_form00_fs0"
+                     wg-container="Document_form"
+                     view.bind="Document"
+                     slot="A">
+            <field name="Name"></field>
+            <field name="Description"></field>
+            <field name="ScreenID"></field>
+            <field name="GraphType"></field>
+        </qp-fieldset>
+        <qp-fieldset id="Document_form01_fs1"
+                     wg-container="Document_form"
+                     view.bind="Document"
+                     slot="B">
+            <field name="Active"></field>
+            <field name="IsSystem"></field>
+            <field name="AllowExport"></field>
+            <!--<using view="CurrentDocument"
+                   id="usCurrentDocument_VisibilityForm1"
+                   wg-container="CurrentDocument_VisibilityForm">
+                <field name="IsGlobal" pinned="false" ></field>
+                <field name="IsScreenBased" pinned="false" ></field>
+                <field name="ShowImages" pinned="false" ></field>
+                <field name="ShowFixed" pinned="false" ></field>
+                <field name="ShowFunctions" pinned="false" ></field>
+                <field name="ShowScreens" pinned="false" ></field>
+                <field name="ShowIterators" pinned="false" ></field>
+                <field name="ShowScripts" pinned="false" ></field>
+            </using>-->
+        </qp-fieldset>
+    </qp-template>
+    <qp-tabbar id="tab">
+        <qp-tab id="tab0" caption="Contents">
+            <qp-grid id="contentElementsGrid" view.bind="ContentElements"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab1" caption="Functions" visible.bind="CurrentDocument.ShowFunctions.value===true">
+            <qp-grid id="functionElementsGrid" view.bind="FunctionElements"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab2" caption="Screens" visible.bind="CurrentDocument.ShowScreens.value===true">
+            <qp-grid id="screenElementGrid" view.bind="ScreenElements"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab3" caption="Hardcoded" visible.bind="CurrentDocument.ShowFixed.value===true">
+            <qp-grid id="fixedElementGrid" view.bind="FixedElements"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab4" caption="Images" visible.bind="CurrentDocument.ShowImages.value===true">
+            <qp-grid id="imageElementsGrid" view.bind="ImageElements"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab5" caption="Iterators" visible.bind="CurrentDocument.ShowIterators.value===true">
+            <qp-grid id="iteratorElementGrid" view.bind="IteratorElements"></qp-grid>
+        </qp-tab>
+        <qp-tab id="tab6" caption="Scripts" visible.bind="CurrentDocument.ShowScripts.value===true">
+            <qp-grid id="scriptElementGrid" view.bind="ScriptElements"></qp-grid>
+        </qp-tab>
+    </qp-tabbar>
+    <qp-panel id="ChangeIDDialog" caption="Specify New ID" auto-repaint="true">
+        <qp-fieldset id="ChangeIDDialog_rlAcctCD_fs0"
+                     wg-container="ChangeIDDialog_formChangeID"
+                     view.bind="ChangeIDDialog">
+            <field name="Name"></field>
+        </qp-fieldset>
+        <footer>
+            <qp-button id="btnOK"
+                       caption="OK"
+                       state.bind="Save"
+                       dialog-result="OK"></qp-button>
+            <qp-button id="PXButton3"
+                       caption="Cancel"
+                       dialog-result="Cancel"></qp-button>
+        </footer>
+    </qp-panel>
+</template>

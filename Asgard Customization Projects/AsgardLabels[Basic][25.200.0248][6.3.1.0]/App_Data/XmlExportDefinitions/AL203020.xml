@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<relations format-version="3" relations-version="1" main-table="ALPrinterFile" file-name="ALPrinterFile-(Name)">
+  <link from="ALPrinterFile (NoteID)" to="Note (NoteID)" type="Note" />
+  <link from="NoteDoc (NoteID)" to="ALPrinterFile (NoteID)" />
+  <link from="UploadFile (FileID)" to="NoteDoc (FileID)" />
+  <link from="UploadFileRevision (FileID)" to="NoteDoc (FileID)" />
+</relations>
