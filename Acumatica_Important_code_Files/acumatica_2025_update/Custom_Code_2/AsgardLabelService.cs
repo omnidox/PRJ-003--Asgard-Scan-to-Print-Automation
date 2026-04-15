@@ -1,39 +1,21 @@
 using System;
-using AA.Objects.License;
-using Asgard.Labels.Abstractions.Interface;
-using Asgard.Labels.Abstractions.Service;
-using Asgard.Labels.Impl.Context;
-using Asgard.Labels.Impl.Poco;
 using PX.Data;
 using PX.Objects.SO;
+using Asgard.Labels.Impl;
+using Asgard.Labels.Impl.Context;
+using Asgard.Labels.Impl.Poco;
 
 namespace AA.Objects.Labels.Integration.PerPackage
 {
-    /// <summary>
-    /// Service for generating and printing Asgard labels on a per-package basis.
-    /// </summary>
     public class AsgardLabelService
     {
         private readonly SOShipmentEntry _graph;
-        private readonly IALLicenseManager _licenseManager;
-        private readonly ILabelGenerator<IAcuLabelContext> _labelGenerator;
-        private readonly IModelProvider _modelProvider;
 
-        public AsgardLabelService(
-            SOShipmentEntry graph,
-            IALLicenseManager licenseManager,
-            ILabelGenerator<IAcuLabelContext> labelGenerator,
-            IModelProvider modelProvider)
+        public AsgardLabelService(SOShipmentEntry graph)
         {
             _graph = graph ?? throw new ArgumentNullException(nameof(graph));
-            _licenseManager = licenseManager ?? throw new ArgumentNullException(nameof(licenseManager));
-            _labelGenerator = labelGenerator ?? throw new ArgumentNullException(nameof(labelGenerator));
-            _modelProvider = modelProvider ?? throw new ArgumentNullException(nameof(modelProvider));
         }
 
-        /// <summary>
-        /// Validates that the shipment and package are ready for printing.
-        /// </summary>
         public virtual void ValidatePackageForAsgardPrint(SOShipment shipment, SOPackageDetailEx package)
         {
             if (shipment == null)
@@ -52,13 +34,24 @@ namespace AA.Objects.Labels.Integration.PerPackage
                 throw new PXException("Shipment does not have a valid customer ID.");
         }
 
-        /// <summary>
-        /// Validates that the chosen model exists and looks usable.
-        /// </summary>
-        public virtual void ValidateModelForPackagePrinting(IModel model, Guid? modelId)
+        public virtual Guid? GetModelIdByName(string modelName)
+        {
+            if (string.IsNullOrWhiteSpace(modelName))
+                throw new PXException("Model name cannot be empty.");
+
+            ALModel model =
+                PXSelect<
+                    ALModel,
+                    Where<ALModel.name, Equal<Required<ALModel.name>>>>
+                .Select(_graph, modelName);
+
+            return model?.LabelID;
+        }
+
+        public virtual void ValidateModelForPackagePrinting(ALModel model, Guid? modelId)
         {
             if (modelId == null || modelId == Guid.Empty)
-                throw new PXException("Please choose an Asgard label model.");
+                throw new PXException("Please choose a valid Asgard label model.");
 
             if (model == null)
                 throw new PXException(
@@ -68,33 +61,41 @@ namespace AA.Objects.Labels.Integration.PerPackage
                 throw new PXException(
                     $"The selected label model (ID: {modelId}) does not have a valid name.");
 
-            // Lightweight safeguards.
-            // You can tighten these later if needed.
             if (string.IsNullOrWhiteSpace(model.ScreenID))
                 throw new PXException("The selected label model is not tied to a screen.");
 
-            if (!string.Equals(model.ScreenID, ACConstants.ScreenIDs.Shipments, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(model.ScreenID, "SO302000", StringComparison.OrdinalIgnoreCase))
                 throw new PXException("The selected label model must belong to the Shipments screen.");
 
             if (string.IsNullOrWhiteSpace(model.BasedOnView) ||
-                model.BasedOnView.IndexOf(ALConstants.ViewNames.Packages, StringComparison.OrdinalIgnoreCase) < 0)
+                model.BasedOnView.IndexOf("Packages", StringComparison.OrdinalIgnoreCase) < 0)
             {
                 throw new PXException("The selected label model must be based on the Packages view.");
             }
         }
 
-        /// <summary>
-        /// Prints the selected Asgard model for the selected package only.
-        /// </summary>
         public virtual PrintResults PrintAsgardLabelForPackage(
             SOShipment shipment,
             SOPackageDetailEx package,
             Guid? modelId)
         {
+            // CHECKPOINT 0: confirms this method is being entered at all (passed)
+            //throw new PXException("CHECKPOINT 0: Entered PrintAsgardLabelForPackage");
+
             ValidatePackageForAsgardPrint(shipment, package);
 
-            IModel model = _modelProvider.GetModel(modelId);
+            // CHECKPOINT 1: confirms package/shipment validation passed (passed)
+            // throw new PXException("CHECKPOINT 1: Package validation passed");
+
+            ALModel model = ALModel.PK.Find(_graph, modelId);
+
+            // CHECKPOINT 2: confirms model lookup happened (passed)
+            // throw new PXException($"CHECKPOINT 2: Model lookup completed. ModelID={modelId}, Found={(model != null)}");
+
             ValidateModelForPackagePrinting(model, modelId);
+
+            // CHECKPOINT 3: confirms model validation passed (passed)
+            // throw new PXException("CHECKPOINT 3: Model validation passed");
 
             try
             {
@@ -105,17 +106,21 @@ namespace AA.Objects.Labels.Integration.PerPackage
                     modelId,
                     shipment.CustomerID);
 
+                if (printContext == null)
+                    throw new PXException("CreateSingleRowPrintContext returned null.");
+
+                // CHECKPOINT 4: confirms print context was created (passed)
+                // throw new PXException("CHECKPOINT 4: AcuLabelContext created successfully");
+
                 printContext.IsSilent = true;
 
-                PrintResults results = _labelGenerator.PrintLabels(printContext);
+                PrintResults results = new AcuLabelGenerator().PrintLabels(printContext);
 
                 if (results == null)
-                    throw new PXException("Label generator returned null results.");
+                    throw new PXException("PrintLabels returned null.");
 
-                if (results.NbLabels > 0)
-                {
-                    _licenseManager.UpdateFeatureConsumption(typeof(SOShipmentEntry), results.NbLabels);
-                }
+                // CHECKPOINT 5: confirms PrintLabels returned (Not passed)
+                // throw new PXException($"CHECKPOINT 5: PrintLabels returned. NbLabels={results.NbLabels}");
 
                 return results;
             }
@@ -125,21 +130,10 @@ namespace AA.Objects.Labels.Integration.PerPackage
             }
             catch (Exception ex)
             {
-                PXTrace.WriteError(ex);
                 throw new PXException(
                     $"An error occurred while generating the Asgard label for package line {package.LineNbr}: {ex.Message}",
                     ex);
             }
-        }
-
-        /// <summary>
-        /// Keeps button visibility simple.
-        /// We only require that Asgard integration for Shipment Entry is active.
-        /// We do NOT require BoxPrintModelID, because the user will choose the model at runtime.
-        /// </summary>
-        public virtual bool IsAsgardPerPackagePrintingEnabled()
-        {
-            return ALSetupSlot.IsActive(typeof(SOShipmentEntry));
         }
     }
 }
