@@ -14,14 +14,7 @@ namespace AA.Objects.Labels.Integration.PerPackage
         private readonly SOShipmentEntry _graph;
         private readonly ILabelGenerator<IAcuLabelContext> _labelGenerator;
 
-        /// <summary>
-        /// Constructor now accepts the injected ILabelGenerator.
-        /// This is CRITICAL - the generator must come from dependency injection,
-        /// not created with 'new' to ensure all dependencies are properly initialized.
-        /// </summary>
-        public AsgardLabelService(
-            SOShipmentEntry graph,
-            ILabelGenerator<IAcuLabelContext> labelGenerator)
+        public AsgardLabelService(SOShipmentEntry graph, ILabelGenerator<IAcuLabelContext> labelGenerator)
         {
             _graph = graph ?? throw new ArgumentNullException(nameof(graph));
             _labelGenerator = labelGenerator ?? throw new ArgumentNullException(nameof(labelGenerator));
@@ -120,7 +113,7 @@ namespace AA.Objects.Labels.Integration.PerPackage
 
                 printContext.IsSilent = true;
 
-                /// CRITICAL FIX: Use the injected _labelGenerator, NOT new AcuLabelGenerator()
+                // CRITICAL FIX: Use injected _labelGenerator instead of new AcuLabelGenerator()
                 PrintResults results = _labelGenerator.PrintLabels(printContext);
 
                 if (results == null)
