@@ -43,11 +43,10 @@ namespace AA.Objects.Labels.Integration.PerPackage
             if (string.IsNullOrWhiteSpace(modelName))
                 throw new PXException("Model name cannot be empty.");
 
-            ALModel model =
-                PXSelect
+            ALModel model = PXSelect<
                     ALModel,
                     Where<ALModel.name, Equal<Required<ALModel.name>>>>
-                .Select(_graph, modelName);
+                    .Select(_graph, modelName);
 
             return model?.LabelID;
         }
