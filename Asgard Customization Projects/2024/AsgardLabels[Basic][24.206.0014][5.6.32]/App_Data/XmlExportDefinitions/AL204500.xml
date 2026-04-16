@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<relations format-version="3" relations-version="1" main-table="ALPrintStation" file-name="ALPrintStation-(Name)">
+  <link from="ALPrintStation (NoteID)" to="Note (NoteID)" type="Note" />
+</relations>

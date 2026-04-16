@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<relations format-version="3" relations-version="1" main-table="ALSetup" file-name="ALSetup-(CompanyID)">
+  <link from="ALMargin (MarginID)" to="ALSetup (DefaultMarginID)" updateable="true" type="Weak" />
+  <link from="ALCategory (CategoryID)" to="ALSetup (DefaultCategoryID)" updateable="true" type="Weak" />
+  <link from="ALFormat (FormatID)" to="ALSetup (DefaultFormatID)" updateable="true" type="Weak" />
+</relations>

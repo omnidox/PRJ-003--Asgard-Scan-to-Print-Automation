@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<relations format-version="3" relations-version="1" main-table="ALSubstitution" file-name="ALSubstitution-(Name)">
+  <link from="ALSubstitutionDetail (SubstitutionID)" to="ALSubstitution (SubstitutionID)" type="Weak" updateable="true" />
+  <link from="ALSubstitution (SubstitutionID)" to="ALSubstitutionDetail (ChildSubstitutionID)" updateable="true" type="FromMaster" do-not-change="ALSubstitution" />
+  <link from="ALSubstitution (NoteID)" to="Note (NoteID)" type="Note" /> 
+</relations>
