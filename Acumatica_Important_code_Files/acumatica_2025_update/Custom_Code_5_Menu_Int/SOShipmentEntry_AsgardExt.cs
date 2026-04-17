@@ -29,7 +29,10 @@ namespace AA.Objects.AL.Integration.PerPackage
                 throw new PXException("No shipment is currently selected.");
 
             if (package == null)
-                throw new PXException("Please select a package from the Packages tab before printing.");
+            {
+                PXTrace.WriteInformation(
+                    "Menu-style test: no package selected. Continuing anyway because CreatePrintContext uses the shipment row, not the selected package row.");
+            }
 
             try
             {
@@ -46,8 +49,6 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 var asgardService = new AsgardLabelService(Base, _labelGenerator);
 
-                asgardService.ValidatePackageForAsgardPrint(shipment, package);
-
                 // Toggle this to true when you want to test using the built-in 2024 box print model.
                 const bool preferBoxPrintModel = true;
 
@@ -60,17 +61,18 @@ namespace AA.Objects.AL.Integration.PerPackage
                 if (modelId == null || modelId == Guid.Empty)
                 {
                     throw new PXException(
-                        "Could not resolve an Asgard label model for per-package printing. " +
+                        "Could not resolve an Asgard label model for menu-style printing. " +
                         "Please verify ALSetupSlot.BoxPrintModelID or the fallback model name.");
                 }
 
                 ALModel resolvedModel = asgardService.GetModelById(modelId);
                 asgardService.TraceModelDiagnostics(resolvedModel, modelId, shipment, package);
 
-                PrintResults results = asgardService.PrintAsgardLabelForPackage(
+                PrintResults results = asgardService.PrintAsgardLabelForShipmentMenuStyle(
                     shipment,
                     package,
-                    modelId);
+                    modelId,
+                    adapter);
 
                 if (results == null)
                     throw new PXException("Label printing returned no results.");
@@ -82,7 +84,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                 }
 
                 PXTrace.WriteInformation(
-                    $"Successfully printed {results.NbLabels} label(s) for package line {package.LineNbr} on shipment {shipment.ShipmentNbr}.");
+                    $"Successfully printed {results.NbLabels} label(s) using menu-style context for shipment {shipment.ShipmentNbr}. Selected package line was {(package != null ? package.LineNbr.ToString() : "<none>")}.");
             }
             catch (PXException)
             {
@@ -92,7 +94,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             {
                 PXTrace.WriteError(ex);
                 throw new PXException(
-                    $"An error occurred while printing the Asgard label: {ex}",
+                    $"An error occurred while printing the Asgard label using menu-style context: {ex}",
                     ex);
             }
 
@@ -122,11 +124,13 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             if (e.Row == null)
             {
-                PrintAsgardPackageLabel.SetEnabled(false);
+                // Keep enabled because this experiment is shipment/menu-context based.
+                PrintAsgardPackageLabel.SetEnabled(Base.Document.Current != null &&
+                                                  !string.IsNullOrWhiteSpace(Base.Document.Current.ShipmentNbr));
                 return;
             }
 
-            PrintAsgardPackageLabel.SetEnabled(e.Row.LineNbr != null);
+            PrintAsgardPackageLabel.SetEnabled(true);
         }
     }
 }

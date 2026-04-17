@@ -17,16 +17,10 @@ namespace AA.Objects.AL.Integration.PerPackage
             _labelGenerator = labelGenerator ?? throw new ArgumentNullException(nameof(labelGenerator));
         }
 
-        public virtual void ValidatePackageForAsgardPrint(SOShipment shipment, SOPackageDetail package)
+        public virtual void ValidateShipmentForAsgardPrint(SOShipment shipment)
         {
             if (shipment == null)
                 throw new PXException("No shipment is currently selected.");
-
-            if (package == null)
-                throw new PXException("No package is currently selected on the Packages tab.");
-
-            if (package.LineNbr == null)
-                throw new PXException("The selected package does not have a valid line number.");
 
             if (string.IsNullOrWhiteSpace(shipment.ShipmentNbr))
                 throw new PXException("Shipment does not have a valid shipment number.");
@@ -68,24 +62,24 @@ namespace AA.Objects.AL.Integration.PerPackage
                 if (boxPrintModelId != null && boxPrintModelId != Guid.Empty)
                 {
                     PXTrace.WriteInformation(
-                        $"Per-package print: using ALSetupSlot.BoxPrintModelID = {boxPrintModelId}");
+                        $"Menu-style print: using ALSetupSlot.BoxPrintModelID = {boxPrintModelId}");
 
                     return boxPrintModelId;
                 }
 
                 PXTrace.WriteInformation(
-                    "Per-package print: ALSetupSlot.BoxPrintModelID is empty, falling back to model name lookup.");
+                    "Menu-style print: ALSetupSlot.BoxPrintModelID is empty, falling back to model name lookup.");
             }
 
             Guid? modelIdByName = GetModelIdByName(modelName);
 
             PXTrace.WriteInformation(
-                $"Per-package print: resolved model '{modelName}' to ModelID = {modelIdByName}");
+                $"Menu-style print: resolved model '{modelName}' to ModelID = {modelIdByName}");
 
             return modelIdByName;
         }
 
-        public virtual void ValidateModelForPackagePrinting(ALModel model, Guid? modelId)
+        public virtual void ValidateModelForMenuStylePrinting(ALModel model, Guid? modelId)
         {
             if (modelId == null || modelId == Guid.Empty)
                 throw new PXException("Please choose a valid Asgard label model.");
@@ -107,12 +101,6 @@ namespace AA.Objects.AL.Integration.PerPackage
                     $"The selected label model must belong to the Shipments screen (SO302000). Current ScreenID: '{model.ScreenID}'.");
             }
 
-            if (!string.Equals(model.BasedOnView, "ALPackages", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new PXException(
-                    $"The selected label model must be based on the ALPackages view for 2024 package printing. Current BasedOnView: '{model.BasedOnView}'.");
-            }
-
             Models.Model slotModel;
             Models.TryGetModelByID(modelId, out slotModel);
 
@@ -132,31 +120,32 @@ namespace AA.Objects.AL.Integration.PerPackage
             string packageLineNbr = package?.LineNbr?.ToString() ?? "<null>";
 
             PXTrace.WriteInformation(
-                $"Per-package print diagnostics: Shipment={shipmentNbr}, PackageLine={packageLineNbr}, ModelID={modelId}, ModelName={modelName}, ScreenID={screenId}, BasedOnView={basedOnView}, GraphType={_graph.GetType().FullName}");
+                $"Menu-style print diagnostics: Shipment={shipmentNbr}, PackageLine={packageLineNbr}, ModelID={modelId}, ModelName={modelName}, ScreenID={screenId}, BasedOnView={basedOnView}, GraphType={_graph.GetType().FullName}");
         }
 
-        public virtual PrintResults PrintAsgardLabelForPackage(
+        public virtual PrintResults PrintAsgardLabelForShipmentMenuStyle(
             SOShipment shipment,
             SOPackageDetail package,
-            Guid? modelId)
+            Guid? modelId,
+            PXAdapter adapter)
         {
-            ValidatePackageForAsgardPrint(shipment, package);
+            ValidateShipmentForAsgardPrint(shipment);
 
             ALModel model = GetModelById(modelId);
-            ValidateModelForPackagePrinting(model, modelId);
+            ValidateModelForMenuStylePrinting(model, modelId);
             TraceModelDiagnostics(model, modelId, shipment, package);
 
             try
             {
-                LabelContext printContext = LabelContext.CreateSingleRowPrintContext(
+                LabelContext printContext = LabelContext.CreatePrintContext(
                     _graph.GetType(),
                     shipment,
-                    package,
                     modelId,
-                    shipment.CustomerID);
+                    false,
+                    adapter);
 
                 if (printContext == null)
-                    throw new PXException("CreateSingleRowPrintContext returned null.");
+                    throw new PXException("CreatePrintContext returned null.");
 
                 printContext.IsSilent = true;
 
@@ -166,9 +155,6 @@ namespace AA.Objects.AL.Integration.PerPackage
                 if (printContext.Row == null)
                     throw new PXException("printContext.Row is null.");
 
-                if (printContext.SingleRow == null)
-                    throw new PXException("printContext.SingleRow is null.");
-
                 if (printContext.Printer == null)
                 {
                     throw new PXException(
@@ -176,7 +162,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                 }
 
                 PXTrace.WriteInformation(
-                    $"Per-package print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, PackageLine={package.LineNbr}");
+                    $"Menu-style print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, SelectedPackageLine={(package != null ? package.LineNbr.ToString() : "<none>")}");
 
                 PrintResults results = _labelGenerator.PrintLabels(printContext);
 
@@ -184,7 +170,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     throw new PXException("PrintLabels returned null.");
 
                 PXTrace.WriteInformation(
-                    $"Per-package print finished: Shipment={shipment.ShipmentNbr}, PackageLine={package.LineNbr}, NbLabels={results.NbLabels}");
+                    $"Menu-style print finished: Shipment={shipment.ShipmentNbr}, SelectedPackageLine={(package != null ? package.LineNbr.ToString() : "<none>")}, NbLabels={results.NbLabels}");
 
                 return results;
             }
@@ -196,7 +182,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             {
                 PXTrace.WriteError(ex);
                 throw new PXException(
-                    $"An error occurred while generating the Asgard label for package line {package.LineNbr}: {ex}",
+                    $"An error occurred while generating the Asgard label for shipment {shipment.ShipmentNbr} using menu-style context: {ex}",
                     ex);
             }
         }
