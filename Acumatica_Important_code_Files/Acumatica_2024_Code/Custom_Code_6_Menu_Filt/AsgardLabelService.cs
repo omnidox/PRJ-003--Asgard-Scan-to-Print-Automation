@@ -1,8 +1,10 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using PX.Data;
 using PX.Objects.SO;
-using AA.Objects.AL;
-using AA.Objects.AL.Integration;
 
 namespace AA.Objects.AL.Integration.PerPackage
 {
@@ -89,16 +91,12 @@ namespace AA.Objects.AL.Integration.PerPackage
                 throw new PXException("Please choose a valid Asgard label model.");
 
             if (model == null)
-            {
                 throw new PXException(
                     $"The selected label model (ID: {modelId}) could not be found.");
-            }
 
             if (string.IsNullOrWhiteSpace(model.Name))
-            {
                 throw new PXException(
                     $"The selected label model (ID: {modelId}) does not have a valid name.");
-            }
 
             if (string.IsNullOrWhiteSpace(model.ScreenID))
                 throw new PXException("The selected label model is not tied to a screen.");
@@ -107,18 +105,6 @@ namespace AA.Objects.AL.Integration.PerPackage
             {
                 throw new PXException(
                     $"The selected label model must belong to the Shipments screen (SO302000). Current ScreenID: '{model.ScreenID}'.");
-            }
-
-            if (!string.Equals(model.ModelType, "S", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new PXException(
-                    $"The selected label model '{model.Name}' is not a single label model. Current ModelType: '{model.ModelType}'.");
-            }
-
-            if (!string.Equals(model.BasedOnView, "ALPackages", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new PXException(
-                    $"The selected label model '{model.Name}' is not package-based. Expected BasedOnView = 'ALPackages', but found '{model.BasedOnView}'.");
             }
 
             Models.Model slotModel;
@@ -181,18 +167,29 @@ namespace AA.Objects.AL.Integration.PerPackage
                         "No printer is configured for this model. Please configure a printer for the model or printer override as needed.");
                 }
 
-                PXResultset<SOPackageDetail> selectedPackageRows = GetSelectedPackageRows(shipment);
+                if (printContext.DetailRows == null)
+                {
+                    throw new PXException(
+                        "CreatePrintContext did not populate DetailRows. The selected model may not be package-based or the shipment may not have package detail rows.");
+                }
 
-                if (selectedPackageRows == null || selectedPackageRows.Count == 0)
+                int originalCount;
+                IPXResultset filteredRows = FilterDetailRowsToSelectedPackages(printContext.DetailRows, out originalCount);
+
+                if (filteredRows == null)
+                    throw new PXException("Filtering the package detail rows returned null.");
+
+                int filteredCount = CountRows(filteredRows);
+                if (filteredCount <= 0)
                 {
                     throw new PXException(
                         "No packages are marked for Asgard printing. Please check the Print Label box on at least one package and save the shipment before printing.");
                 }
 
-                printContext.DetailRows = selectedPackageRows;
+                printContext.DetailRows = filteredRows;
 
                 PXTrace.WriteInformation(
-                    $"Filtered-context print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, SelectedPackageCount={selectedPackageRows.Count}");
+                    $"Filtered-context print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, OriginalPackageCount={originalCount}, SelectedPackageCount={filteredCount}");
 
                 PrintResults results = _labelGenerator.PrintLabels(printContext);
 
@@ -200,7 +197,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     throw new PXException("PrintLabels returned null.");
 
                 PXTrace.WriteInformation(
-                    $"Filtered-context print finished: Shipment={shipment.ShipmentNbr}, SelectedPackageCount={selectedPackageRows.Count}, NbLabels={results.NbLabels}");
+                    $"Filtered-context print finished: Shipment={shipment.ShipmentNbr}, SelectedPackageCount={filteredCount}, NbLabels={results.NbLabels}");
 
                 return results;
             }
@@ -217,39 +214,99 @@ namespace AA.Objects.AL.Integration.PerPackage
             }
         }
 
-        protected virtual PXResultset<SOPackageDetail> GetSelectedPackageRows(SOShipment shipment)
+        protected virtual IPXResultset FilterDetailRowsToSelectedPackages(IPXResultset detailRows, out int originalCount)
         {
-            if (shipment == null)
-                throw new PXException("Shipment cannot be null while gathering selected packages.");
+            if (detailRows == null)
+                throw new PXException("detailRows cannot be null.");
 
-            _graph.Document.Current = shipment;
+            IEnumerable enumerableRows = detailRows as IEnumerable;
+            if (enumerableRows == null)
+                throw new PXException("detailRows does not implement IEnumerable, so it cannot be filtered.");
 
-            ALSOShipmentEntryExt asgardShipmentExt = _graph.GetExtension<ALSOShipmentEntryExt>();
-            if (asgardShipmentExt?.ALPackages == null)
+            List<object> selectedRows = new List<object>();
+            originalCount = 0;
+
+            foreach (object row in enumerableRows)
             {
-                throw new PXException(
-                    "Could not access Asgard's ALPackages view on SOShipmentEntry.");
-            }
+                originalCount++;
 
-            PXResultset<SOPackageDetail> selectedRows = new PXResultset<SOPackageDetail>();
-
-            foreach (object result in asgardShipmentExt.ALPackages.Select())
-            {
-                SOPackageDetail package = PXResult.Unwrap<SOPackageDetail>(result);
+                SOPackageDetail package = PXResult.Unwrap<SOPackageDetail>(row);
                 if (package == null)
                     continue;
 
-                bool isMarkedForPrint = IsPackageMarkedForPrint(package);
-                if (!isMarkedForPrint)
+                if (!IsPackageMarkedForPrint(package))
                     continue;
 
-                selectedRows.Add(result);
+                selectedRows.Add(row);
             }
 
             PXTrace.WriteInformation(
-                $"Filtered-context print: found {selectedRows.Count} selected package row(s) in ALPackages for shipment {shipment.ShipmentNbr}.");
+                $"Filtered-context print: found {selectedRows.Count} selected package row(s) out of {originalCount} detail row(s).");
 
-            return selectedRows;
+            object filteredResultsetObject = Activator.CreateInstance(detailRows.GetType());
+            if (filteredResultsetObject == null)
+                throw new PXException($"Could not create a filtered resultset instance of type '{detailRows.GetType().FullName}'.");
+
+            foreach (object selectedRow in selectedRows)
+            {
+                AddRowToResultset(filteredResultsetObject, selectedRow);
+            }
+
+            IPXResultset filteredResultset = filteredResultsetObject as IPXResultset;
+            if (filteredResultset == null)
+            {
+                throw new PXException(
+                    $"The filtered resultset instance of type '{detailRows.GetType().FullName}' does not implement IPXResultset.");
+            }
+
+            return filteredResultset;
+        }
+
+        protected virtual void AddRowToResultset(object resultset, object row)
+        {
+            if (resultset == null)
+                throw new ArgumentNullException(nameof(resultset));
+
+            if (row == null)
+                throw new ArgumentNullException(nameof(row));
+
+            MethodInfo addMethod = resultset
+                .GetType()
+                .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+                .FirstOrDefault(m =>
+                {
+                    if (!string.Equals(m.Name, "Add", StringComparison.Ordinal))
+                        return false;
+
+                    ParameterInfo[] parameters = m.GetParameters();
+                    return parameters.Length == 1 && parameters[0].ParameterType.IsAssignableFrom(row.GetType());
+                });
+
+            if (addMethod == null)
+            {
+                throw new PXException(
+                    $"Could not find a compatible Add method on resultset type '{resultset.GetType().FullName}' for row type '{row.GetType().FullName}'.");
+            }
+
+            addMethod.Invoke(resultset, new[] { row });
+        }
+
+        protected virtual int CountRows(IPXResultset rows)
+        {
+            if (rows == null)
+                return 0;
+
+            IEnumerable enumerableRows = rows as IEnumerable;
+            if (enumerableRows == null)
+                return 0;
+
+            int count = 0;
+            foreach (object row in enumerableRows)
+            {
+                count++;
+            }
+
+            return count;
         }
 
         protected virtual bool IsPackageMarkedForPrint(SOPackageDetail package)
