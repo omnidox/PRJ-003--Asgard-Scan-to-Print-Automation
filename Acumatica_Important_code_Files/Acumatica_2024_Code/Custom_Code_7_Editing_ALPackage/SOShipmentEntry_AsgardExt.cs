@@ -3,7 +3,6 @@ using System.Collections;
 using PX.Data;
 using PX.Data.DependencyInjection;
 using PX.Objects.SO;
-using AA.Objects.AL.License;
 
 namespace AA.Objects.AL.Integration.PerPackage
 {
@@ -16,9 +15,6 @@ namespace AA.Objects.AL.Integration.PerPackage
 
         [InjectDependency]
         private ILabelGenerator _labelGenerator { get; set; }
-
-        [InjectDependency]
-        private IALLicenseManager _licenseManager { get; set; }
 
         public PXAction<SOShipment> PrintAsgardPackageLabel;
 
@@ -52,7 +48,7 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 graph.Document.Current = shipmentInLongOp;
 
-                var asgardService = new AsgardLabelService(graph, _labelGenerator, _licenseManager);
+                var asgardService = new AsgardLabelService(graph, _labelGenerator);
 
                 const bool preferBoxPrintModel = true;
                 const string fallbackModelName = "istar_test_label";
@@ -62,22 +58,29 @@ namespace AA.Objects.AL.Integration.PerPackage
                 if (modelId == null || modelId == Guid.Empty)
                 {
                     throw new PXException(
-                        "Could not resolve an Asgard label model for diagnostic selected-package printing. " +
+                        "Could not resolve an Asgard label model for selected-package native printing. " +
                         "Please verify ALSetupSlot.BoxPrintModelID or the fallback model name.");
                 }
 
                 ALModel resolvedModel = asgardService.GetModelById(modelId);
                 asgardService.TraceModelDiagnostics(resolvedModel, modelId, shipmentInLongOp);
 
-                PackagePrintSummary summary = asgardService.TestFirstCheckedALPackagesRow(
+                PrintResults results = asgardService.PrintCheckedPackagesUsingNativeContext(
                     shipmentInLongOp,
-                    modelId);
+                    modelId,
+                    null);
 
-                if (summary == null)
-                    throw new PXException("Diagnostic label printing returned no summary.");
+                if (results == null)
+                    throw new PXException("Label printing returned no results.");
+
+                if (results.NbLabels <= 0)
+                {
+                    throw new PXException(
+                        "No labels were generated. Please verify the selected packages are checked for printing and the selected label model is configured correctly.");
+                }
 
                 PXTrace.WriteInformation(
-                    $"Diagnostic print summary: SelectedPackageCount={summary.SelectedPackageCount}, LabelsPrinted={summary.LabelsPrinted}, Shipment={shipmentInLongOp.ShipmentNbr}");
+                    $"Successfully printed {results.NbLabels} label(s) using the filtered native CreatePrintContext path for shipment {shipmentInLongOp.ShipmentNbr}.");
             });
 
             return adapter.Get();
