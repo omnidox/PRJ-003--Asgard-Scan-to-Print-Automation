@@ -3,6 +3,7 @@ using System.Collections;
 using PX.Data;
 using PX.Data.DependencyInjection;
 using PX.Objects.SO;
+using AA.Objects.AL;
 
 namespace AA.Objects.AL.Integration.PerPackage
 {
@@ -23,51 +24,30 @@ namespace AA.Objects.AL.Integration.PerPackage
         protected virtual IEnumerable printAsgardPackageLabel(PXAdapter adapter)
         {
             SOShipment shipment = Base.Document.Current;
-            SOPackageDetail package = Base.Packages.Current;
 
             if (shipment == null)
                 throw new PXException("No shipment is currently selected.");
 
-            if (package == null)
-            {
-                PXTrace.WriteInformation(
-                    "Menu-style test: no package selected. Continuing anyway because CreatePrintContext uses the shipment row, not the selected package row.");
-            }
-
-            PXCache shipmentCache = Base.Document.Cache;
-            if (shipmentCache != null &&
-                shipmentCache.IsDirty &&
-                shipmentCache.AllowUpdate &&
-                !adapter.ExternalCall)
+            if (Base.IsDirty)
             {
                 Base.Actions.PressSave();
                 shipment = Base.Document.Current;
-                package = Base.Packages.Current;
             }
 
-            SOShipment shipmentCopy = shipment;
-            SOPackageDetail packageCopy = package;
+            string shipmentNbr = shipment.ShipmentNbr;
 
-            PXLongOperation.StartOperation(Base.UID, delegate()
+            PXLongOperation.StartOperation(Base, delegate()
             {
                 SOShipmentEntry graph = PXGraph.CreateInstance<SOShipmentEntry>();
 
-                SOShipment shipmentInLongOp = SOShipment.PK.Find(graph, shipmentCopy.ShipmentNbr);
+                SOShipment shipmentInLongOp = SOShipment.PK.Find(graph, shipmentNbr);
                 if (shipmentInLongOp == null)
-                    throw new PXException($"Shipment '{shipmentCopy.ShipmentNbr}' could not be reloaded inside the long operation.");
-
-                SOPackageDetail packageInLongOp = null;
-                if (packageCopy != null && packageCopy.LineNbr != null)
                 {
-                    foreach (SOPackageDetail pkg in graph.Packages.Select())
-                    {
-                        if (pkg.LineNbr == packageCopy.LineNbr)
-                        {
-                            packageInLongOp = pkg;
-                            break;
-                        }
-                    }
+                    throw new PXException(
+                        $"Shipment '{shipmentNbr}' could not be reloaded inside the long operation.");
                 }
+
+                graph.Document.Current = shipmentInLongOp;
 
                 var asgardService = new AsgardLabelService(graph, _labelGenerator);
 
@@ -79,16 +59,15 @@ namespace AA.Objects.AL.Integration.PerPackage
                 if (modelId == null || modelId == Guid.Empty)
                 {
                     throw new PXException(
-                        "Could not resolve an Asgard label model for menu-style printing. " +
+                        "Could not resolve an Asgard label model for package printing. " +
                         "Please verify ALSetupSlot.BoxPrintModelID or the fallback model name.");
                 }
 
                 ALModel resolvedModel = asgardService.GetModelById(modelId);
-                asgardService.TraceModelDiagnostics(resolvedModel, modelId, shipmentInLongOp, packageInLongOp);
+                asgardService.TraceModelDiagnostics(resolvedModel, modelId, shipmentInLongOp);
 
-                PrintResults results = asgardService.PrintAsgardLabelForShipmentMenuStyle(
+                PrintResults results = asgardService.PrintSelectedPackageLabelsMenuStyle(
                     shipmentInLongOp,
-                    packageInLongOp,
                     modelId,
                     null);
 
@@ -98,11 +77,11 @@ namespace AA.Objects.AL.Integration.PerPackage
                 if (results.NbLabels <= 0)
                 {
                     throw new PXException(
-                        "No labels were generated. Please verify the selected label model is configured correctly.");
+                        "No labels were generated. Please verify the selected packages are checked for printing and the selected label model is configured correctly.");
                 }
 
                 PXTrace.WriteInformation(
-                    $"Successfully printed {results.NbLabels} label(s) using menu-style context for shipment {shipmentInLongOp.ShipmentNbr}. Selected package line was {(packageInLongOp != null ? packageInLongOp.LineNbr.ToString() : "<none>")}.");
+                    $"Successfully printed {results.NbLabels} label(s) using filtered menu-style context for shipment {shipmentInLongOp.ShipmentNbr}.");
             });
 
             return adapter.Get();
