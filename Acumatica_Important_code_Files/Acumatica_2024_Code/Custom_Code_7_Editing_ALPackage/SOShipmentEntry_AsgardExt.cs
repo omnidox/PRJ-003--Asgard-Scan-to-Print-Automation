@@ -50,8 +50,8 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 var asgardService = new AsgardLabelService(graph, _labelGenerator);
 
-                const bool preferBoxPrintModel = true;
-                const string fallbackModelName = "istar_test_label";
+                const bool preferBoxPrintModel = false;
+                const string fallbackModelName = "RS-8A-Packing for Target";
 
                 Guid? modelId = asgardService.ResolveModelId(fallbackModelName, preferBoxPrintModel);
 
