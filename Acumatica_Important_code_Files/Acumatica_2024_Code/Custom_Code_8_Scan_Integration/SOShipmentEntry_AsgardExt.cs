@@ -22,6 +22,17 @@ namespace AA.Objects.AL.Integration.PerPackage
         [PXUIField(DisplayName = "Print Asgard Label", Visible = true, Enabled = true)]
         protected virtual IEnumerable printAsgardPackageLabel(PXAdapter adapter)
         {
+            // Delegate to the action method
+            PrintForPackage(adapter);
+            return adapter.Get();
+        }
+
+        /// <summary>
+        /// Core action method - called by BOTH button AND scan trigger
+        /// This is the single source of truth for print logic
+        /// </summary>
+        public virtual void PrintForPackage(PXAdapter adapter)
+        {
             SOShipment shipment = Base.Document.Current;
 
             if (shipment == null)
@@ -82,8 +93,6 @@ namespace AA.Objects.AL.Integration.PerPackage
                 PXTrace.WriteInformation(
                     $"Successfully printed {results.NbLabels} label(s) using the filtered native CreatePrintContext path for shipment {shipmentInLongOp.ShipmentNbr}.");
             });
-
-            return adapter.Get();
         }
 
         protected virtual void _(Events.RowSelected<SOShipment> e)
