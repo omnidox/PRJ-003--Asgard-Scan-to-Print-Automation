@@ -196,13 +196,59 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation(
                 $"[SERVICE] Row-selection native print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
 
-            // ✅ DIAGNOSTIC: Inspect context data structures before PrintLabels
-            PXTrace.WriteInformation("[SERVICE] === CONTEXT DIAGNOSTICS ===");
+            // ✅ DIAGNOSTIC: Inspect context data structures BEFORE manual injection
+            PXTrace.WriteInformation("[SERVICE] === CONTEXT DIAGNOSTICS (BEFORE INJECTION) ===");
             PXTrace.WriteInformation("[SERVICE] printContext.SingleRow: {0}", 
                 printContext.SingleRow != null ? printContext.SingleRow.GetType().Name : "null");
             PXTrace.WriteInformation("[SERVICE] printContext.Row: {0}", 
                 printContext.Row != null ? printContext.Row.GetType().Name : "null");
-            PXTrace.WriteInformation("[SERVICE] printContext.DetailRows: {0}", 
+            PXTrace.WriteInformation("[SERVICE] printContext.DetailRows BEFORE injection: {0}", 
+                printContext.DetailRows != null ? printContext.DetailRows.GetType().Name : "null");
+
+            // ✅ MANUAL INJECTION: Load filtered packages and inject into context
+            PXTrace.WriteInformation("[SERVICE] === MANUAL INJECTION PHASE ===");
+            try
+            {
+                // Query the filtered ALPackages view directly from the graph
+                // The scope is still active, so the filter will apply
+                var alPackagesView = _graph.Views["ALPackages"];
+                if (alPackagesView == null)
+                {
+                    PXTrace.WriteInformation("[SERVICE] WARNING: ALPackages view not found on graph");
+                }
+                else
+                {
+                    object[] currents = new object[] { shipment };
+                    IEnumerable filteredPackages = alPackagesView.SelectMultiBound(currents);
+                    
+                    PXTrace.WriteInformation("[SERVICE] Queried ALPackages view with active filter scope");
+                    
+                    // Convert to IPXResultset for injection
+                    IPXResultset packageResultset = AsgardUtils.GetAsResultset(filteredPackages);
+                    
+                    if (packageResultset != null)
+                    {
+                        int packageCount = packageResultset.GetRowCount();
+                        PXTrace.WriteInformation("[SERVICE] Filtered package result set contains {0} packages", packageCount);
+                        
+                        // Inject into context DetailRows
+                        printContext.DetailRows = packageResultset;
+                        PXTrace.WriteInformation("[SERVICE] ✅ Injected filtered packages into printContext.DetailRows");
+                    }
+                    else
+                    {
+                        PXTrace.WriteInformation("[SERVICE] ⚠️ packageResultset is null - could not inject");
+                    }
+                }
+            }
+            catch (Exception injectionEx)
+            {
+                PXTrace.WriteInformation("[SERVICE] ⚠️ Error during manual injection: {0}", injectionEx.Message);
+            }
+
+            // ✅ DIAGNOSTIC: Inspect context data structures AFTER manual injection
+            PXTrace.WriteInformation("[SERVICE] === CONTEXT DIAGNOSTICS (AFTER INJECTION) ===");
+            PXTrace.WriteInformation("[SERVICE] printContext.DetailRows AFTER injection: {0}", 
                 printContext.DetailRows != null ? printContext.DetailRows.GetType().Name : "null");
             
             if (printContext.DetailRows != null)
@@ -211,7 +257,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                 {
                     IPXResultset detailRowsSet = printContext.DetailRows as IPXResultset;
                     int detailRowCount = detailRowsSet?.GetRowCount() ?? 0;
-                    PXTrace.WriteInformation("[SERVICE] printContext.DetailRows row count: {0}", detailRowCount);
+                    PXTrace.WriteInformation("[SERVICE] printContext.DetailRows row count AFTER injection: {0}", detailRowCount);
                     
                     // Try to read first row if available
                     if (detailRowCount > 0)
@@ -232,6 +278,11 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation("[SERVICE] printContext.IsDesignMode: {0}", printContext.IsDesignMode);
             PXTrace.WriteInformation("[SERVICE] printContext.IsRender: {0}", printContext.IsRender);
             PXTrace.WriteInformation("[SERVICE] === END CONTEXT DIAGNOSTICS ===");
+
+            // ✅ CRITICAL: Trace immediately before PrintLabels to confirm injection persists
+            PXTrace.WriteInformation("[SERVICE] ⚠️ FINAL CHECK before PrintLabels: DetailRows={0}, RowCount={1}", 
+                printContext.DetailRows != null ? "POPULATED" : "NULL",
+                printContext.DetailRows != null ? (printContext.DetailRows as IPXResultset)?.GetRowCount().ToString() : "N/A");
 
             PXTrace.WriteInformation("[SERVICE] Calling _labelGenerator.PrintLabels()");
 
