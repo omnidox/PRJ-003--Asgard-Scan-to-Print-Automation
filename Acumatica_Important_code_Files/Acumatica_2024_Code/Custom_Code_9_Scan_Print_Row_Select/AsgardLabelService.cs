@@ -199,11 +199,15 @@ namespace AA.Objects.AL.Integration.PerPackage
             // ✅ PATH C: Set SingleRow to bypass view resolution
             // BasicLabelGenerator.PrintLabelInternal() checks SingleRow first. If populated, it uses that directly.
             // Otherwise it falls back to ViewUtils.GetViewDefinition(graph, model.BasedOnView)
+            // 
+            // CRITICAL: SingleRow must be a plain DAC (SOPackageDetail), NOT a wrapped PXResult<SOPackageDetail>
+            // The SingleRow branch derives the cache type from singleRow.GetType(), and a lone PXResult<T>
+            // would produce the wrapper type instead of the DAC type, causing TypeLoadException in PXCache.
             PXTrace.WriteInformation("[SERVICE] === PATH C: SingleRow Population ===");
             
             try
             {
-                // Query the selected package as a PXResult to match the expected row type
+                // Query the selected package as a PXResult
                 PXResultset<SOPackageDetail> packageResult = PXSelect<SOPackageDetail,
                     Where<SOPackageDetail.shipmentNbr, Equal<Required<SOPackageDetail.shipmentNbr>>,
                     And<SOPackageDetail.lineNbr, Equal<Required<SOPackageDetail.lineNbr>>>>>
@@ -211,8 +215,10 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 if (packageResult != null && packageResult.Count > 0)
                 {
-                    // Get the first (and only) row as the SingleRow
-                    object selectedPackageRow = packageResult[0];
+                    // ✅ Extract the plain DAC from the PXResult wrapper
+                    // packageResult[0] is a PXResult<SOPackageDetail>, we need the plain SOPackageDetail
+                    PXResult<SOPackageDetail> wrappedRow = packageResult[0];
+                    SOPackageDetail selectedPackageRow = (SOPackageDetail)wrappedRow;
                     
                     printContext.SingleRow = selectedPackageRow;
                     PXTrace.WriteInformation("[SERVICE] ✅ Set printContext.SingleRow to selected package row (type: {0})", 
