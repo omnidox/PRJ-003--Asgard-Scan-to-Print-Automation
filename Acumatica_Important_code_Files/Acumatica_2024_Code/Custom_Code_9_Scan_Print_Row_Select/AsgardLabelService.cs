@@ -8,8 +8,6 @@ namespace AA.Objects.AL.Integration.PerPackage
 {
     public class AsgardLabelService
     {
-        private const string PackagePrintFlagField = "UsrALPrintLabel";
-
         private readonly SOShipmentEntry _graph;
         private readonly ILabelGenerator _labelGenerator;
 
@@ -124,57 +122,38 @@ namespace AA.Objects.AL.Integration.PerPackage
                 $"Selected-package native print diagnostics: Shipment={shipmentNbr}, ModelID={modelId}, ModelName={modelName}, ScreenID={screenId}, BasedOnView={basedOnView}, GraphType={_graph.GetType().FullName}");
         }
 
-        public virtual List<int?> GetCheckedPackageLineNbrs(SOShipment shipment)
-        {
-            ValidateShipmentForAsgardPrint(shipment);
-
-            _graph.Document.Current = shipment;
-
-            List<int?> selectedLineNbrs = new List<int?>();
-
-            foreach (SOPackageDetail package in _graph.Packages.Select())
-            {
-                if (package == null)
-                    continue;
-
-                object value = _graph.Packages.Cache.GetValue(package, PackagePrintFlagField);
-                bool isChecked = value is bool b && b;
-
-                PXTrace.WriteInformation(
-                    $"Selected-package native print: package line {package.LineNbr}, checked={isChecked}");
-
-                if (!isChecked)
-                    continue;
-
-                selectedLineNbrs.Add(package.LineNbr);
-            }
-
-            return selectedLineNbrs;
-        }
-
-        public virtual PrintResults PrintCheckedPackagesUsingNativeContext(
+        public virtual PrintResults PrintSelectedPackageUsingNativeContext(
             SOShipment shipment,
             Guid? modelId,
+            int? selectedPackageLineNbr,
             PXAdapter adapter)
         {
             ValidateShipmentForAsgardPrint(shipment);
+
+            if (selectedPackageLineNbr == null)
+                throw new PXException("No package line number was specified for printing.");
 
             ALModel model = GetModelById(modelId);
             ValidateModelForNativeContextPrinting(model, modelId);
             TraceModelDiagnostics(model, modelId, shipment);
 
-            List<int?> selectedLineNbrs = GetCheckedPackageLineNbrs(shipment);
+            SOPackageDetail packageToVerify = PXSelect<
+                SOPackageDetail,
+                Where<
+                    SOPackageDetail.shipmentNbr, Equal<Required<SOPackageDetail.shipmentNbr>>,
+                    And<SOPackageDetail.lineNbr, Equal<Required<SOPackageDetail.lineNbr>>>>>
+                .Select(_graph, shipment.ShipmentNbr, selectedPackageLineNbr);
 
-            if (selectedLineNbrs.Count == 0)
+            if (packageToVerify == null)
             {
                 throw new PXException(
-                    "No packages are marked for Asgard printing. Please check the Print Label box on at least one package and save the shipment before printing.");
+                    $"Package line {selectedPackageLineNbr} not found in shipment {shipment.ShipmentNbr}.");
             }
 
             PXTrace.WriteInformation(
-                $"Selected-package native print: shipment {shipment.ShipmentNbr} will print package lines [{string.Join(", ", selectedLineNbrs.Where(x => x != null))}]");
+                $"Row-selection native print: shipment {shipment.ShipmentNbr} will print package line {selectedPackageLineNbr}");
 
-            using (ALPackagesFilterScope.Activate(shipment.ShipmentNbr, selectedLineNbrs))
+            using (ALPackagesFilterScope.Activate(shipment.ShipmentNbr, new[] { selectedPackageLineNbr }))
             {
                 LabelContext printContext = LabelContext.CreatePrintContext(
                     _graph.GetType(),
@@ -201,7 +180,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                 }
 
                 PXTrace.WriteInformation(
-                    $"Selected-package native print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}");
+                    $"Row-selection native print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
 
                 PrintResults results = _labelGenerator.PrintLabels(printContext);
 
@@ -209,10 +188,20 @@ namespace AA.Objects.AL.Integration.PerPackage
                     throw new PXException("PrintLabels returned null.");
 
                 PXTrace.WriteInformation(
-                    $"Selected-package native print finished: Shipment={shipment.ShipmentNbr}, NbLabels={results.NbLabels}");
+                    $"Row-selection native print finished: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
 
                 return results;
             }
+        }
+
+        [Obsolete("Use PrintSelectedPackageUsingNativeContext instead")]
+        public virtual PrintResults PrintCheckedPackagesUsingNativeContext(
+            SOShipment shipment,
+            Guid? modelId,
+            PXAdapter adapter)
+        {
+            throw new PXException(
+                "PrintCheckedPackagesUsingNativeContext is deprecated. Use PrintSelectedPackageUsingNativeContext with a specific package line number instead.");
         }
     }
 }

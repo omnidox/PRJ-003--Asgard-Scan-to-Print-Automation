@@ -30,8 +30,11 @@ namespace AA.Objects.AL.Integration.PerPackage
         /// <summary>
         /// Core action method - called by BOTH button AND scan trigger
         /// This is the single source of truth for print logic
+        ///
+        /// NEW: Accepts optional selectedPackageLineNbr parameter for row-selection printing
+        /// If null, prints the currently selected package in the grid
         /// </summary>
-        public virtual void PrintForPackage(PXAdapter adapter)
+        public virtual void PrintForPackage(PXAdapter adapter, int? selectedPackageLineNbr = null)
         {
             SOShipment shipment = Base.Document.Current;
 
@@ -44,7 +47,25 @@ namespace AA.Objects.AL.Integration.PerPackage
                 shipment = Base.Document.Current;
             }
 
+            // ✅ NEW: If no package specified, get the currently selected row
+            if (selectedPackageLineNbr == null)
+            {
+                SOPackageDetail currentSelected = Base.Packages.Current;
+                if (currentSelected?.LineNbr == null)
+                {
+                    throw new PXException(
+                        "No package is selected. Please select a package row and try again.");
+                }
+                selectedPackageLineNbr = currentSelected.LineNbr;
+                PXTrace.WriteInformation("[PRINT] Using currently selected package: {0}", selectedPackageLineNbr);
+            }
+            else
+            {
+                PXTrace.WriteInformation("[PRINT] Using explicitly passed package: {0}", selectedPackageLineNbr);
+            }
+
             string shipmentNbr = shipment.ShipmentNbr;
+            int packageLineNbr = (int)selectedPackageLineNbr;
 
             PXLongOperation.StartOperation(Base, delegate()
             {
@@ -76,9 +97,11 @@ namespace AA.Objects.AL.Integration.PerPackage
                 ALModel resolvedModel = asgardService.GetModelById(modelId);
                 asgardService.TraceModelDiagnostics(resolvedModel, modelId, shipmentInLongOp);
 
-                PrintResults results = asgardService.PrintCheckedPackagesUsingNativeContext(
+                // ✅ NEW: Pass the selected package line number to the service
+                PrintResults results = asgardService.PrintSelectedPackageUsingNativeContext(
                     shipmentInLongOp,
                     modelId,
+                    packageLineNbr,
                     null);
 
                 if (results == null)
@@ -87,11 +110,11 @@ namespace AA.Objects.AL.Integration.PerPackage
                 if (results.NbLabels <= 0)
                 {
                     throw new PXException(
-                        "No labels were generated. Please verify the selected packages are checked for printing and the selected label model is configured correctly.");
+                        "No labels were generated. Please verify the selected package is valid and the selected label model is configured correctly.");
                 }
 
                 PXTrace.WriteInformation(
-                    $"Successfully printed {results.NbLabels} label(s) using the filtered native CreatePrintContext path for shipment {shipmentInLongOp.ShipmentNbr}.");
+                    $"Successfully printed {results.NbLabels} label(s) using row-selection print for shipment {shipmentInLongOp.ShipmentNbr}, package line {packageLineNbr}.");
             });
         }
 
