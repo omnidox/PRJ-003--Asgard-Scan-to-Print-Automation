@@ -120,8 +120,8 @@ namespace AA.Objects.AL.Integration.PerPackage
                 PXTrace.WriteInformation("[LONGOP] Packages.Current set to line {0}", packageLineNbr);
 
                 // ✅ Force the ALPackages view to load and populate with data
-                var alPackagesData = graph.Views["ALPackages"].Select();
-                PXTrace.WriteInformation("[LONGOP] ALPackages view loaded with {0} packages", alPackagesData.Count);
+                var alPackagesData = graph.Views["ALPackages"].SelectMultiBound(new object[] { shipmentInLongOp });
+                PXTrace.WriteInformation("[LONGOP] ALPackages view loaded with {0} packages", alPackagesData.Count());
 
                 // ✅ ALSO activate scope so filter extension sees it if called
                 using (ALPackagesFilterScope.Activate(shipmentNbr, new int?[] { packageLineNbr }))
