@@ -176,8 +176,10 @@ namespace AA.Objects.AL.Integration.PerPackage
             if (printContext == null)
                 throw new PXException("CreatePrintContext returned null.");
 
+            string modelName = printContext.Model != null ? printContext.Model.Name : "<null>";
+            string printerName = printContext.Printer != null ? printContext.Printer.Name : "<null>";
             PXTrace.WriteInformation("[SERVICE] CreatePrintContext succeeded. Context Model={0}, Printer={1}", 
-                printContext.Model?.Name ?? "<null>", printContext.Printer?.Name ?? "<null>");
+                modelName, printerName);
 
             printContext.IsSilent = true;
 
@@ -201,7 +203,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: Native ALPackages Path Resolution ===");
             try
             {
-                string basedOnView = printContext.Model?.BasedOnView ?? "null";
+                string basedOnView = printContext.Model != null ? printContext.Model.BasedOnView : "null";
                 PXTrace.WriteInformation("[DIAG-NATIVE] basedOnView={0}", basedOnView);
 
                 // Step 1: GetViewDefinition - what metadata does Asgard see for ALPackages?
@@ -211,15 +213,15 @@ namespace AA.Objects.AL.Integration.PerPackage
                 if (viewDef != null)
                 {
                     PXTrace.WriteInformation("[DIAG-NATIVE] ViewDef.InternalName: {0}", viewDef.InternalName);
-                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewDef.ItemType: {0}", viewDef.ItemType?.Name ?? "null");
-                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewDef.ItemTypes.Count: {0}", viewDef.ItemTypes?.Length ?? 0);
+                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewDef.ItemType: {0}", viewDef.ItemType != null ? viewDef.ItemType.Name : "null");
+                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewDef.ItemTypes.Count: {0}", viewDef.ItemTypes != null ? viewDef.ItemTypes.Length : 0);
                     if (viewDef.ItemTypes != null && viewDef.ItemTypes.Length > 0)
                     {
                         PXTrace.WriteInformation("[DIAG-NATIVE] ViewDef.ItemTypes: {0}", 
                             string.Join(", ", viewDef.ItemTypes.Select(t => t.Name)));
                     }
                     PXTrace.WriteInformation("[DIAG-NATIVE] ViewDef.Detail: {0}", viewDef.Detail);
-                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewDef.DependsOn: {0}", viewDef.DependsOn ?? "null");
+                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewDef.DependsOn: {0}", viewDef.DependsOn != null ? viewDef.DependsOn : "null");
                 }
                 else
                 {
@@ -237,14 +239,14 @@ namespace AA.Objects.AL.Integration.PerPackage
                         PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult type: {0}", viewResult.GetType().FullName);
                         PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.InternalName: {0}", viewResult.InternalName);
                         PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.TableCount: {0}", viewResult.TableCount);
-                        PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.ItemTypes.Count: {0}", viewResult.ItemTypes?.Count ?? 0);
+                        PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.ItemTypes.Count: {0}", viewResult.ItemTypes != null ? viewResult.ItemTypes.Count : 0);
                         if (viewResult.ItemTypes != null && viewResult.ItemTypes.Count > 0)
                         {
                             PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.ItemTypes: {0}", 
                                 string.Join(", ", viewResult.ItemTypes.Select(t => t.Name)));
                         }
-                        PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.Result type: {0}", 
-                            viewResult.Result?.GetType().FullName ?? "null");
+                        string resultTypeName = viewResult.Result != null ? viewResult.Result.GetType().FullName : "null";
+                        PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.Result type: {0}", resultTypeName);
                         PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.Result is null: {0}", viewResult.Result == null);
                         PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.Detail: {0}", viewResult.Detail);
                     }
@@ -393,8 +395,9 @@ namespace AA.Objects.AL.Integration.PerPackage
                     printContext.SingleRow == null);
                 PXTrace.WriteInformation("[DIAG-ELIGIBILITY] ALPackagesFilterScope.IsActive: {0}", 
                     ALPackagesFilterScope.IsActive);
+                string modelBasedOnView = printContext.Model != null ? printContext.Model.BasedOnView : "null";
                 PXTrace.WriteInformation("[DIAG-ELIGIBILITY] printContext.Model.BasedOnView: {0}", 
-                    printContext.Model?.BasedOnView ?? "null");
+                    modelBasedOnView);
                 PXTrace.WriteInformation("[DIAG-ELIGIBILITY] Expected package to print: line {0}", 
                     selectedPackageLineNbr);
 
@@ -419,16 +422,17 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 // ✅ DIAGNOSTIC: Analyze print results
                 PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: Print Results Analysis ===");
-                PXTrace.WriteInformation("[DIAG-RESULTS] NbLabels: {0}", results.NbLabels ?? 0);
+                int nbLabelsValue = results.NbLabels != null ? results.NbLabels.Value : 0;
+                PXTrace.WriteInformation("[DIAG-RESULTS] NbLabels: {0}", nbLabelsValue);
                 PXTrace.WriteInformation("[DIAG-RESULTS] PrintResults type: {0}", results.GetType().FullName);
                 
-                if ((results.NbLabels ?? 0) == 0)
+                if (nbLabelsValue == 0)
                 {
                     PXTrace.WriteInformation("[DIAG-RESULTS] ⚠️ Zero labels generated");
                 }
                 else
                 {
-                    PXTrace.WriteInformation("[DIAG-RESULTS] ✅ Labels generated: {0}", results.NbLabels);
+                    PXTrace.WriteInformation("[DIAG-RESULTS] ✅ Labels generated: {0}", nbLabelsValue);
                 }
 
                 PXTrace.WriteInformation("[SERVICE] === END Print Results Analysis ===");
@@ -444,8 +448,8 @@ namespace AA.Objects.AL.Integration.PerPackage
                 PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: PrintLabels Exception Analysis ===");
                 PXTrace.WriteInformation("[DIAG] Exception Type: {0}", printEx.GetType().FullName);
                 PXTrace.WriteInformation("[DIAG] Exception Message: {0}", printEx.Message);
-                PXTrace.WriteInformation("[DIAG] Exception StackTrace (first 500 chars): {0}", 
-                    printEx.StackTrace?.Substring(0, Math.Min(500, printEx.StackTrace.Length)) ?? "NO STACKTRACE");
+                string stackTrace = printEx.StackTrace != null ? printEx.StackTrace.Substring(0, Math.Min(500, printEx.StackTrace.Length)) : "NO STACKTRACE";
+                PXTrace.WriteInformation("[DIAG] Exception StackTrace (first 500 chars): {0}", stackTrace);
                 
                 // Check InnerException
                 if (printEx.InnerException != null)
