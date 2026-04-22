@@ -99,13 +99,31 @@ namespace AA.Objects.AL.Integration.PerPackage
                 ALModel resolvedModel = asgardService.GetModelById(modelId);
                 asgardService.TraceModelDiagnostics(resolvedModel, modelId, shipmentInLongOp);
 
-                // ✅ CRITICAL: Activate the filter scope INSIDE the long operation
-                // This ensures the scope is active when CreatePrintContext is called in the new graph
+                // ✅ CRITICAL FIX: Use the filter scope AND manually set the Packages view current
+                // to ensure Asgard only sees the selected package
+                PXTrace.WriteInformation("[LONGOP] Setting selected package to {0} in Packages view", packageLineNbr);
+
+                SOPackageDetail selectedPackage = PXSelect<
+                    SOPackageDetail,
+                    Where<SOPackageDetail.shipmentNbr, Equal<Required<SOPackageDetail.shipmentNbr>>,
+                    And<SOPackageDetail.lineNbr, Equal<Required<SOPackageDetail.lineNbr>>>>>
+                    .Select(graph, shipmentNbr, packageLineNbr).FirstOrDefault();
+
+                if (selectedPackage == null)
+                {
+                    throw new PXException($"Package line {packageLineNbr} not found in shipment {shipmentNbr}");
+                }
+
+                // Set the current package in the view
+                graph.Packages.Current = selectedPackage;
+                PXTrace.WriteInformation("[LONGOP] Packages.Current set to line {0}", packageLineNbr);
+
+                // ✅ ALSO activate scope so filter extension sees it if called
                 using (ALPackagesFilterScope.Activate(shipmentNbr, new int?[] { packageLineNbr }))
                 {
                     PXTrace.WriteInformation("[LONGOP] Filter scope activated for shipment {0}, package {1}", shipmentNbr, packageLineNbr);
 
-                    // ✅ Call service with scope active
+                    // Call service with both scope active AND Packages.Current set
                     PrintResults results = asgardService.PrintSelectedPackageUsingNativeContext(
                         shipmentInLongOp,
                         modelId,
