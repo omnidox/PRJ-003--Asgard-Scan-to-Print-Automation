@@ -128,6 +128,9 @@ namespace AA.Objects.AL.Integration.PerPackage
             int? selectedPackageLineNbr,
             PXAdapter adapter)
         {
+            PXTrace.WriteInformation("[SERVICE] PrintSelectedPackageUsingNativeContext called - Shipment={0}, Package={1}, ModelID={2}", 
+                shipment?.ShipmentNbr, selectedPackageLineNbr, modelId);
+
             ValidateShipmentForAsgardPrint(shipment);
 
             if (selectedPackageLineNbr == null)
@@ -136,6 +139,8 @@ namespace AA.Objects.AL.Integration.PerPackage
             ALModel model = GetModelById(modelId);
             ValidateModelForNativeContextPrinting(model, modelId);
             TraceModelDiagnostics(model, modelId, shipment);
+
+            PXTrace.WriteInformation("[SERVICE] Verifying package {0} exists in shipment {1}", selectedPackageLineNbr, shipment.ShipmentNbr);
 
             SOPackageDetail packageToVerify = PXSelect<
                 SOPackageDetail,
@@ -151,10 +156,16 @@ namespace AA.Objects.AL.Integration.PerPackage
             }
 
             PXTrace.WriteInformation(
-                $"Row-selection native print: shipment {shipment.ShipmentNbr} will print package line {selectedPackageLineNbr}");
+                $"[SERVICE] Package {selectedPackageLineNbr} verified. Graph type: {_graph.GetType().FullName}");
+
+            PXTrace.WriteInformation(
+                $"[SERVICE] Row-selection native print: shipment {shipment.ShipmentNbr} will print package line {selectedPackageLineNbr}");
 
             // ✅ CRITICAL: Assume filter scope is already activated by the caller (SOShipmentEntry_AsgardExt)
             // This allows the scope to remain active across the fresh graph context
+            PXTrace.WriteInformation("[SERVICE] Calling CreatePrintContext with Graph={0}, ShipmentNbr={1}, ModelID={2}", 
+                _graph.GetType().Name, shipment.ShipmentNbr, modelId);
+
             LabelContext printContext = LabelContext.CreatePrintContext(
                 _graph.GetType(),
                 shipment,
@@ -164,6 +175,9 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             if (printContext == null)
                 throw new PXException("CreatePrintContext returned null.");
+
+            PXTrace.WriteInformation("[SERVICE] CreatePrintContext succeeded. Context Model={0}, Printer={1}", 
+                printContext.Model?.Name ?? "<null>", printContext.Printer?.Name ?? "<null>");
 
             printContext.IsSilent = true;
 
@@ -180,7 +194,9 @@ namespace AA.Objects.AL.Integration.PerPackage
             }
 
             PXTrace.WriteInformation(
-                $"Row-selection native print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
+                $"[SERVICE] Row-selection native print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
+
+            PXTrace.WriteInformation("[SERVICE] Calling _labelGenerator.PrintLabels()");
 
             PrintResults results = _labelGenerator.PrintLabels(printContext);
 
@@ -188,7 +204,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                 throw new PXException("PrintLabels returned null.");
 
             PXTrace.WriteInformation(
-                $"Row-selection native print finished: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
+                $"[SERVICE] Row-selection native print finished: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
 
             return results;
         }

@@ -101,11 +101,11 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 // ✅ CRITICAL: Activate the filter scope INSIDE the long operation
                 // This ensures the scope is active when CreatePrintContext is called in the new graph
-                using (ALPackagesFilterScope.Activate(shipmentNbr, new[] { packageLineNbr }))
+                using (ALPackagesFilterScope.Activate(shipmentNbr, new int?[] { packageLineNbr }))
                 {
                     PXTrace.WriteInformation("[LONGOP] Filter scope activated for shipment {0}, package {1}", shipmentNbr, packageLineNbr);
 
-                    // ✅ Pass null to the service since scope is now active
+                    // ✅ Call service with scope active
                     PrintResults results = asgardService.PrintSelectedPackageUsingNativeContext(
                         shipmentInLongOp,
                         modelId,

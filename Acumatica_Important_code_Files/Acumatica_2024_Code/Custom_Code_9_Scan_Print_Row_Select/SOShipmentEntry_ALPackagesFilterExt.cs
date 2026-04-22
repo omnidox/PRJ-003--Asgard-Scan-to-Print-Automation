@@ -42,15 +42,21 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             IEnumerable rawRows = _originalALPackagesView.SelectMultiBound(currents);
 
+            // ✅ ADD TRACE: Log whether filter is active and how many packages we're filtering
             if (!ALPackagesFilterScope.IsActive)
             {
+                PXTrace.WriteInformation("[FILTER] ALPackagesFilterScope is NOT active - returning all packages");
                 foreach (object row in rawRows)
                     yield return row;
 
                 yield break;
             }
 
+            PXTrace.WriteInformation("[FILTER] ALPackagesFilterScope IS active for shipment {0}", ALPackagesFilterScope.ShipmentNbr);
+
             string currentShipmentNbr = Base.Document.Current?.ShipmentNbr;
+            int filteredCount = 0;
+            int totalCount = 0;
 
             foreach (object row in rawRows)
             {
@@ -58,11 +64,20 @@ namespace AA.Objects.AL.Integration.PerPackage
                 if (package == null)
                     continue;
 
-                if (!ALPackagesFilterScope.Matches(currentShipmentNbr, package.LineNbr))
-                    continue;
+                totalCount++;
 
+                if (!ALPackagesFilterScope.Matches(currentShipmentNbr, package.LineNbr))
+                {
+                    PXTrace.WriteInformation("[FILTER] Package {0} does NOT match filter", package.LineNbr);
+                    continue;
+                }
+
+                filteredCount++;
+                PXTrace.WriteInformation("[FILTER] Package {0} MATCHES filter - yielding", package.LineNbr);
                 yield return row;
             }
+
+            PXTrace.WriteInformation("[FILTER] Filtered {0} out of {1} packages", filteredCount, totalCount);
         }
     }
 }
