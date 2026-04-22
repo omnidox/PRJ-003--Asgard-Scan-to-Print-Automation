@@ -196,45 +196,64 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation(
                 $"[SERVICE] Row-selection native print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
 
-            // ✅ PATH C: Set SingleRow to bypass view resolution
-            // BasicLabelGenerator.PrintLabelInternal() checks SingleRow first. If populated, it uses that directly.
-            // Otherwise it falls back to ViewUtils.GetViewDefinition(graph, model.BasedOnView)
-            //
-            // CRITICAL: SingleRow must match the row type of BasedOnView (ALPackages)
-            // The model's BasedOnView determines the expected row shape. If BasedOnView=ALPackages,
-            // SingleRow must be SOPackageDetailEx (matching what ALPackages yields), not SOPackageDetail.
-            // SingleRow is being aligned to the ALPackages row shape as a diagnostic step,
-            // but the actual failure may still be downstream in resultset conversion/iteration.
-            PXTrace.WriteInformation("[SERVICE] === PATH C: SingleRow Population ===");
+            // ✅ BEST PRACTICE TEST: Use the actual row from the filtered ALPackages view
+            // ALPackages is a PXSelectJoin with joins to SOShipment, CSBox, InventoryItem, ALTemplateItem
+            // So a real row from ALPackages is a joined PXResult, not a simple SOPackageDetailEx
+            // This test compares: synthetic wrapping (broken) vs real view row (expected to work)
+            PXTrace.WriteInformation("[SERVICE] === PATH C: SingleRow Population (ALPackages Real Row) ===");
             
             try
             {
-                // Query the selected package as SOPackageDetailEx to match ALPackages row type
-                PXResultset<SOPackageDetailEx> packageResult = PXSelect<SOPackageDetailEx,
-                    Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
-                    And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
-                    .Select(_graph, shipment.ShipmentNbr, selectedPackageLineNbr);
-
-                if (packageResult != null && packageResult.Count > 0)
+                // ✅ DIAGNOSTIC: First, try to get the row from the actual filtered ALPackages view
+                // This row should already be in the correct joined shape that Asgard expects
+                PXView alPackagesView = _graph.Views["ALPackages"];
+                if (alPackagesView != null)
                 {
-                    // ✅ Extract the plain DAC from the PXResult wrapper
-                    // packageResult[0] is a PXResult<SOPackageDetailEx>, we need the plain SOPackageDetailEx
-                    PXResult<SOPackageDetailEx> wrappedRow = packageResult[0];
-                    SOPackageDetailEx selectedPackageRow = (SOPackageDetailEx)wrappedRow;
+                    PXTrace.WriteInformation("[SERVICE] ALPackages view found, attempting to select first row");
                     
-                    printContext.SingleRow = selectedPackageRow;
-                    PXTrace.WriteInformation("[SERVICE] ✅ Set printContext.SingleRow to selected package row (type: {0})", 
-                        selectedPackageRow.GetType().Name);
-                    PXTrace.WriteInformation("[SERVICE] Row type matches BasedOnView (ALPackages) - GetAsResultset will wrap correctly");
+                    // SelectMultiBound will use the current filter scope to return only the filtered row
+                    // CRITICAL: Do NOT force into PXResultset<SOPackageDetail> — preserve native row shape
+                    // ALPackages is a PXSelectJoin, so the real row is a joined PXResult with multiple tables
+                    var alPackagesRows = alPackagesView.SelectMultiBound(new object[] { _graph.Document.Current });
+                    object alPackagesFirstRow = alPackagesRows?.Cast<object>().FirstOrDefault();
+                    
+                    if (alPackagesFirstRow != null)
+                    {
+                        PXTrace.WriteInformation("[DIAG-ALPACKAGES] ALPackages first row obtained");
+                        PXTrace.WriteInformation("[DIAG-ALPACKAGES] Real row type: {0}", 
+                            alPackagesFirstRow.GetType().FullName);
+                        PXTrace.WriteInformation("[DIAG-ALPACKAGES] Real row is PXResult: {0}", alPackagesFirstRow is PXResult);
+                        PXTrace.WriteInformation("[DIAG-ALPACKAGES] Real row is IBqlTable: {0}", alPackagesFirstRow is IBqlTable);
+                        PXTrace.WriteInformation("[DIAG-ALPACKAGES] Real row is IPXResultset: {0}", alPackagesFirstRow is IPXResultset);
+                        
+                        // Log if it's a PXResult and what it wraps
+                        if (alPackagesFirstRow is PXResult realRowResult)
+                        {
+                            PXTrace.WriteInformation("[DIAG-ALPACKAGES] Real row IS PXResult with type arguments: {0}", 
+                                string.Join(",", realRowResult.GetType().GenericTypeArguments.Select(t => t.Name)));
+                        }
+                        
+                        // ✅ Assign the REAL row from ALPackages to SingleRow
+                        // This is the shape Asgard expects for BasedOnView=ALPackages
+                        printContext.SingleRow = alPackagesFirstRow;
+                        PXTrace.WriteInformation("[SERVICE] ✅ Set printContext.SingleRow to REAL ALPackages row (type: {0})", 
+                            alPackagesFirstRow.GetType().Name);
+                        PXTrace.WriteInformation("[SERVICE] This is the actual joined row shape that ALPackages yields (NOT forced into typed resultset)");
+                    }
+                    else
+                    {
+                        PXTrace.WriteInformation("[SERVICE] ⚠️ Could not get row from ALPackages view - result was null or empty");
+                    }
                 }
                 else
                 {
-                    PXTrace.WriteInformation("[SERVICE] ⚠️ Could not populate SingleRow - package query returned empty");
+                    PXTrace.WriteInformation("[SERVICE] ⚠️ ALPackages view not found in graph");
                 }
             }
             catch (Exception ex)
             {
-                PXTrace.WriteInformation("[SERVICE] ⚠️ Error populating SingleRow: {0}", ex.Message);
+                PXTrace.WriteInformation("[SERVICE] ⚠️ Error getting row from ALPackages view: {0}: {1}", 
+                    ex.GetType().FullName, ex.Message);
             }
 
             // ✅ DIAGNOSTIC: Trace context state before PrintLabels
