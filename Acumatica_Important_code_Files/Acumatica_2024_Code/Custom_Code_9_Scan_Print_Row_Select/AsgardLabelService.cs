@@ -247,17 +247,73 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation("[SERVICE] printContext.IsDesignMode: {0}", printContext.IsDesignMode);
             PXTrace.WriteInformation("[SERVICE] === END CONTEXT STATE ===");
 
+            // ✅ DIAGNOSTIC: Deep inspection of SingleRow before GetAsResultset
+            PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: SingleRow Analysis (INPUT TO GETASRESULTSET) ===");
+            try
+            {
+                if (printContext.SingleRow != null)
+                {
+                    PXTrace.WriteInformation("[DIAG] SingleRow.GetType(): {0}", printContext.SingleRow.GetType().FullName);
+                    PXTrace.WriteInformation("[DIAG] SingleRow is IBqlTable: {0}", printContext.SingleRow is IBqlTable);
+                    PXTrace.WriteInformation("[DIAG] SingleRow is PXResult: {0}", printContext.SingleRow is PXResult);
+                    PXTrace.WriteInformation("[DIAG] SingleRow is IPXResultset: {0}", printContext.SingleRow is IPXResultset);
+                    PXTrace.WriteInformation("[DIAG] SingleRow is IList: {0}", printContext.SingleRow is System.Collections.IList);
+                    
+                    // Check if it's a PXResult and what it wraps
+                    if (printContext.SingleRow is PXResult pr)
+                    {
+                        PXTrace.WriteInformation("[DIAG] SingleRow IS PXResult - checking wrapped types");
+                        PXTrace.WriteInformation("[DIAG] PXResult.GetType().GenericTypeArguments: {0}", 
+                            string.Join(",", pr.GetType().GenericTypeArguments.Select(t => t.Name)));
+                    }
+                }
+                else
+                {
+                    PXTrace.WriteInformation("[DIAG] SingleRow is NULL");
+                }
+            }
+            catch (Exception diagEx)
+            {
+                PXTrace.WriteInformation("[DIAG] Error during SingleRow analysis: {0}", diagEx.Message);
+            }
+            PXTrace.WriteInformation("[SERVICE] === END SingleRow Analysis ===");
+
             PXTrace.WriteInformation("[SERVICE] Calling _labelGenerator.PrintLabels()");
 
-            PrintResults results = _labelGenerator.PrintLabels(printContext);
+            // ✅ DIAGNOSTIC: Wrap PrintLabels call to capture what happens
+            try
+            {
+                PrintResults results = _labelGenerator.PrintLabels(printContext);
+                
+                if (results == null)
+                    throw new PXException("PrintLabels returned null.");
 
-            if (results == null)
-                throw new PXException("PrintLabels returned null.");
+                PXTrace.WriteInformation(
+                    $"[SERVICE] Row-selection native print finished: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
 
-            PXTrace.WriteInformation(
-                $"[SERVICE] Row-selection native print finished: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
+                return results;
+            }
+            catch (Exception printEx)
+            {
+                // ✅ DIAGNOSTIC: Detailed error analysis
+                PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: PrintLabels Exception Analysis ===");
+                PXTrace.WriteInformation("[DIAG] Exception Type: {0}", printEx.GetType().FullName);
+                PXTrace.WriteInformation("[DIAG] Exception Message: {0}", printEx.Message);
+                PXTrace.WriteInformation("[DIAG] Exception StackTrace (first 500 chars): {0}", 
+                    printEx.StackTrace?.Substring(0, Math.Min(500, printEx.StackTrace.Length)) ?? "NO STACKTRACE");
+                
+                // Check InnerException
+                if (printEx.InnerException != null)
+                {
+                    PXTrace.WriteInformation("[DIAG] InnerException Type: {0}", printEx.InnerException.GetType().FullName);
+                    PXTrace.WriteInformation("[DIAG] InnerException Message: {0}", printEx.InnerException.Message);
+                }
 
-            return results;
+                PXTrace.WriteInformation("[SERVICE] === END Exception Analysis ===");
+                
+                // Re-throw the original exception
+                throw;
+            }
         }
 
         [Obsolete("Use PrintSelectedPackageUsingNativeContext instead")]
