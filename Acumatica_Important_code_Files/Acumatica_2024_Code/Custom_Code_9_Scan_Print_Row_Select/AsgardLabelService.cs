@@ -196,93 +196,48 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation(
                 $"[SERVICE] Row-selection native print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
 
-            // ✅ DIAGNOSTIC: Inspect context data structures BEFORE manual injection
-            PXTrace.WriteInformation("[SERVICE] === CONTEXT DIAGNOSTICS (BEFORE INJECTION) ===");
-            PXTrace.WriteInformation("[SERVICE] printContext.SingleRow: {0}", 
-                printContext.SingleRow != null ? printContext.SingleRow.GetType().Name : "null");
-            PXTrace.WriteInformation("[SERVICE] printContext.Row: {0}", 
-                printContext.Row != null ? printContext.Row.GetType().Name : "null");
-            PXTrace.WriteInformation("[SERVICE] printContext.DetailRows BEFORE injection: {0}", 
-                printContext.DetailRows != null ? printContext.DetailRows.GetType().Name : "null");
-
-            // ✅ MANUAL INJECTION: Load filtered packages and inject into context
-            PXTrace.WriteInformation("[SERVICE] === MANUAL INJECTION PHASE ===");
+            // ✅ PATH C: Set SingleRow to bypass view resolution
+            // BasicLabelGenerator.PrintLabelInternal() checks SingleRow first. If populated, it uses that directly.
+            // Otherwise it falls back to ViewUtils.GetViewDefinition(graph, model.BasedOnView)
+            PXTrace.WriteInformation("[SERVICE] === PATH C: SingleRow Population ===");
+            
             try
             {
-                // Query the filtered ALPackages view directly from the graph
-                // The scope is still active, so the filter will apply
-                var alPackagesView = _graph.Views["ALPackages"];
-                if (alPackagesView == null)
+                // Query the selected package as a PXResult to match the expected row type
+                PXResultset<SOPackageDetail> packageResult = PXSelect<SOPackageDetail,
+                    Where<SOPackageDetail.shipmentNbr, Equal<Required<SOPackageDetail.shipmentNbr>>,
+                    And<SOPackageDetail.lineNbr, Equal<Required<SOPackageDetail.lineNbr>>>>>
+                    .Select(_graph, shipment.ShipmentNbr, selectedPackageLineNbr);
+
+                if (packageResult != null && packageResult.Count > 0)
                 {
-                    PXTrace.WriteInformation("[SERVICE] WARNING: ALPackages view not found on graph");
+                    // Get the first (and only) row as the SingleRow
+                    object selectedPackageRow = packageResult[0];
+                    
+                    printContext.SingleRow = selectedPackageRow;
+                    PXTrace.WriteInformation("[SERVICE] ✅ Set printContext.SingleRow to selected package row (type: {0})", 
+                        selectedPackageRow.GetType().Name);
+                    PXTrace.WriteInformation("[SERVICE] This will force BasicLabelGenerator to skip view resolution and use SingleRow path");
                 }
                 else
                 {
-                    object[] currents = new object[] { shipment };
-                    IEnumerable filteredPackages = alPackagesView.SelectMultiBound(currents);
-                    
-                    PXTrace.WriteInformation("[SERVICE] Queried ALPackages view with active filter scope");
-                    
-                    // Convert to IPXResultset for injection
-                    IPXResultset packageResultset = AsgardUtils.GetAsResultset(filteredPackages);
-                    
-                    if (packageResultset != null)
-                    {
-                        int packageCount = packageResultset.GetRowCount();
-                        PXTrace.WriteInformation("[SERVICE] Filtered package result set contains {0} packages", packageCount);
-                        
-                        // Inject into context DetailRows
-                        printContext.DetailRows = packageResultset;
-                        PXTrace.WriteInformation("[SERVICE] ✅ Injected filtered packages into printContext.DetailRows");
-                    }
-                    else
-                    {
-                        PXTrace.WriteInformation("[SERVICE] ⚠️ packageResultset is null - could not inject");
-                    }
+                    PXTrace.WriteInformation("[SERVICE] ⚠️ Could not populate SingleRow - package query returned empty");
                 }
             }
-            catch (Exception injectionEx)
+            catch (Exception ex)
             {
-                PXTrace.WriteInformation("[SERVICE] ⚠️ Error during manual injection: {0}", injectionEx.Message);
+                PXTrace.WriteInformation("[SERVICE] ⚠️ Error populating SingleRow: {0}", ex.Message);
             }
 
-            // ✅ DIAGNOSTIC: Inspect context data structures AFTER manual injection
-            PXTrace.WriteInformation("[SERVICE] === CONTEXT DIAGNOSTICS (AFTER INJECTION) ===");
-            PXTrace.WriteInformation("[SERVICE] printContext.DetailRows AFTER injection: {0}", 
-                printContext.DetailRows != null ? printContext.DetailRows.GetType().Name : "null");
-            
-            if (printContext.DetailRows != null)
-            {
-                try
-                {
-                    IPXResultset detailRowsSet = printContext.DetailRows as IPXResultset;
-                    int detailRowCount = detailRowsSet?.GetRowCount() ?? 0;
-                    PXTrace.WriteInformation("[SERVICE] printContext.DetailRows row count AFTER injection: {0}", detailRowCount);
-                    
-                    // Try to read first row if available
-                    if (detailRowCount > 0)
-                    {
-                        object firstRow = detailRowsSet?.GetItem(0, 0);
-                        PXTrace.WriteInformation("[SERVICE] First DetailRow type: {0}", 
-                            firstRow != null ? firstRow.GetType().Name : "null");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    PXTrace.WriteInformation("[SERVICE] Error inspecting DetailRows: {0}", ex.Message);
-                }
-            }
-
-            PXTrace.WriteInformation("[SERVICE] printContext.Model.ModelType: {0}", printContext.Model.ModelType);
+            // ✅ DIAGNOSTIC: Trace context state before PrintLabels
+            PXTrace.WriteInformation("[SERVICE] === CONTEXT STATE (BEFORE PRINTLABELS) ===");
+            PXTrace.WriteInformation("[SERVICE] printContext.SingleRow: {0}", 
+                printContext.SingleRow != null ? printContext.SingleRow.GetType().Name : "null");
+            PXTrace.WriteInformation("[SERVICE] printContext.Row (shipment): {0}", 
+                printContext.Row != null ? printContext.Row.GetType().Name : "null");
             PXTrace.WriteInformation("[SERVICE] printContext.Model.BasedOnView: {0}", printContext.Model.BasedOnView);
             PXTrace.WriteInformation("[SERVICE] printContext.IsDesignMode: {0}", printContext.IsDesignMode);
-            PXTrace.WriteInformation("[SERVICE] printContext.IsRender: {0}", printContext.IsRender);
-            PXTrace.WriteInformation("[SERVICE] === END CONTEXT DIAGNOSTICS ===");
-
-            // ✅ CRITICAL: Trace immediately before PrintLabels to confirm injection persists
-            PXTrace.WriteInformation("[SERVICE] ⚠️ FINAL CHECK before PrintLabels: DetailRows={0}, RowCount={1}", 
-                printContext.DetailRows != null ? "POPULATED" : "NULL",
-                printContext.DetailRows != null ? (printContext.DetailRows as IPXResultset)?.GetRowCount().ToString() : "N/A");
+            PXTrace.WriteInformation("[SERVICE] === END CONTEXT STATE ===");
 
             PXTrace.WriteInformation("[SERVICE] Calling _labelGenerator.PrintLabels()");
 
