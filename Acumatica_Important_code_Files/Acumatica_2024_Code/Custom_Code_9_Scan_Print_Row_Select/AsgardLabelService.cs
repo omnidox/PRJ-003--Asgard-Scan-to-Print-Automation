@@ -153,45 +153,44 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation(
                 $"Row-selection native print: shipment {shipment.ShipmentNbr} will print package line {selectedPackageLineNbr}");
 
-            using (ALPackagesFilterScope.Activate(shipment.ShipmentNbr, new[] { selectedPackageLineNbr }))
+            // ✅ CRITICAL: Assume filter scope is already activated by the caller (SOShipmentEntry_AsgardExt)
+            // This allows the scope to remain active across the fresh graph context
+            LabelContext printContext = LabelContext.CreatePrintContext(
+                _graph.GetType(),
+                shipment,
+                modelId,
+                false,
+                adapter);
+
+            if (printContext == null)
+                throw new PXException("CreatePrintContext returned null.");
+
+            printContext.IsSilent = true;
+
+            if (printContext.Model == null)
+                throw new PXException("printContext.Model is null.");
+
+            if (printContext.Row == null)
+                throw new PXException("printContext.Row is null.");
+
+            if (printContext.Printer == null)
             {
-                LabelContext printContext = LabelContext.CreatePrintContext(
-                    _graph.GetType(),
-                    shipment,
-                    modelId,
-                    false,
-                    adapter);
-
-                if (printContext == null)
-                    throw new PXException("CreatePrintContext returned null.");
-
-                printContext.IsSilent = true;
-
-                if (printContext.Model == null)
-                    throw new PXException("printContext.Model is null.");
-
-                if (printContext.Row == null)
-                    throw new PXException("printContext.Row is null.");
-
-                if (printContext.Printer == null)
-                {
-                    throw new PXException(
-                        "No printer is configured for this model. Please configure a printer for the model or printer override as needed.");
-                }
-
-                PXTrace.WriteInformation(
-                    $"Row-selection native print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
-
-                PrintResults results = _labelGenerator.PrintLabels(printContext);
-
-                if (results == null)
-                    throw new PXException("PrintLabels returned null.");
-
-                PXTrace.WriteInformation(
-                    $"Row-selection native print finished: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
-
-                return results;
+                throw new PXException(
+                    "No printer is configured for this model. Please configure a printer for the model or printer override as needed.");
             }
+
+            PXTrace.WriteInformation(
+                $"Row-selection native print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
+
+            PrintResults results = _labelGenerator.PrintLabels(printContext);
+
+            if (results == null)
+                throw new PXException("PrintLabels returned null.");
+
+            PXTrace.WriteInformation(
+                $"Row-selection native print finished: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
+
+            return results;
         }
 
         [Obsolete("Use PrintSelectedPackageUsingNativeContext instead")]

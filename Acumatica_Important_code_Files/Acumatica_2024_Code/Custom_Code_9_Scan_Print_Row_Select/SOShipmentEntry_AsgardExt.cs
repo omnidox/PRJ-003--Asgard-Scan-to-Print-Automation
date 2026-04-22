@@ -69,6 +69,8 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             PXLongOperation.StartOperation(Base, delegate()
             {
+                PXTrace.WriteInformation("[LONGOP] Creating fresh graph and reloading shipment {0}", shipmentNbr);
+
                 SOShipmentEntry graph = PXGraph.CreateInstance<SOShipmentEntry>();
 
                 SOShipment shipmentInLongOp = SOShipment.PK.Find(graph, shipmentNbr);
@@ -97,24 +99,31 @@ namespace AA.Objects.AL.Integration.PerPackage
                 ALModel resolvedModel = asgardService.GetModelById(modelId);
                 asgardService.TraceModelDiagnostics(resolvedModel, modelId, shipmentInLongOp);
 
-                // ✅ NEW: Pass the selected package line number to the service
-                PrintResults results = asgardService.PrintSelectedPackageUsingNativeContext(
-                    shipmentInLongOp,
-                    modelId,
-                    packageLineNbr,
-                    null);
-
-                if (results == null)
-                    throw new PXException("Label printing returned no results.");
-
-                if (results.NbLabels <= 0)
+                // ✅ CRITICAL: Activate the filter scope INSIDE the long operation
+                // This ensures the scope is active when CreatePrintContext is called in the new graph
+                using (ALPackagesFilterScope.Activate(shipmentNbr, new[] { packageLineNbr }))
                 {
-                    throw new PXException(
-                        "No labels were generated. Please verify the selected package is valid and the selected label model is configured correctly.");
-                }
+                    PXTrace.WriteInformation("[LONGOP] Filter scope activated for shipment {0}, package {1}", shipmentNbr, packageLineNbr);
 
-                PXTrace.WriteInformation(
-                    $"Successfully printed {results.NbLabels} label(s) using row-selection print for shipment {shipmentInLongOp.ShipmentNbr}, package line {packageLineNbr}.");
+                    // ✅ Pass null to the service since scope is now active
+                    PrintResults results = asgardService.PrintSelectedPackageUsingNativeContext(
+                        shipmentInLongOp,
+                        modelId,
+                        packageLineNbr,
+                        null);
+
+                    if (results == null)
+                        throw new PXException("Label printing returned no results.");
+
+                    if (results.NbLabels <= 0)
+                    {
+                        throw new PXException(
+                            "No labels were generated. Please verify the selected package is valid and the selected label model is configured correctly.");
+                    }
+
+                    PXTrace.WriteInformation(
+                        $"Successfully printed {results.NbLabels} label(s) using row-selection print for shipment {shipmentInLongOp.ShipmentNbr}, package line {packageLineNbr}.");
+                }
             });
         }
 
