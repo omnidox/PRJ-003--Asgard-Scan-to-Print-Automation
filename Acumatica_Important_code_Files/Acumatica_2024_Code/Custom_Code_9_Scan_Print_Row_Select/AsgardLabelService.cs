@@ -196,6 +196,43 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation(
                 $"[SERVICE] Row-selection native print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
 
+            // ✅ DIAGNOSTIC: Inspect context data structures before PrintLabels
+            PXTrace.WriteInformation("[SERVICE] === CONTEXT DIAGNOSTICS ===");
+            PXTrace.WriteInformation("[SERVICE] printContext.SingleRow: {0}", 
+                printContext.SingleRow != null ? printContext.SingleRow.GetType().Name : "null");
+            PXTrace.WriteInformation("[SERVICE] printContext.Row: {0}", 
+                printContext.Row != null ? printContext.Row.GetType().Name : "null");
+            PXTrace.WriteInformation("[SERVICE] printContext.DetailRows: {0}", 
+                printContext.DetailRows != null ? printContext.DetailRows.GetType().Name : "null");
+            
+            if (printContext.DetailRows != null)
+            {
+                try
+                {
+                    IPXResultset detailRowsSet = printContext.DetailRows as IPXResultset;
+                    int detailRowCount = detailRowsSet?.GetRowCount() ?? 0;
+                    PXTrace.WriteInformation("[SERVICE] printContext.DetailRows row count: {0}", detailRowCount);
+                    
+                    // Try to read first row if available
+                    if (detailRowCount > 0)
+                    {
+                        object firstRow = detailRowsSet?.GetItem(0, 0);
+                        PXTrace.WriteInformation("[SERVICE] First DetailRow type: {0}", 
+                            firstRow != null ? firstRow.GetType().Name : "null");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    PXTrace.WriteInformation("[SERVICE] Error inspecting DetailRows: {0}", ex.Message);
+                }
+            }
+
+            PXTrace.WriteInformation("[SERVICE] printContext.Model.ModelType: {0}", printContext.Model.ModelType);
+            PXTrace.WriteInformation("[SERVICE] printContext.Model.BasedOnView: {0}", printContext.Model.BasedOnView);
+            PXTrace.WriteInformation("[SERVICE] printContext.IsDesignMode: {0}", printContext.IsDesignMode);
+            PXTrace.WriteInformation("[SERVICE] printContext.IsRender: {0}", printContext.IsRender);
+            PXTrace.WriteInformation("[SERVICE] === END CONTEXT DIAGNOSTICS ===");
+
             PXTrace.WriteInformation("[SERVICE] Calling _labelGenerator.PrintLabels()");
 
             PrintResults results = _labelGenerator.PrintLabels(printContext);
