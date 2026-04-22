@@ -203,8 +203,8 @@ namespace AA.Objects.AL.Integration.PerPackage
             // CRITICAL: SingleRow must match the row type of BasedOnView (ALPackages)
             // The model's BasedOnView determines the expected row shape. If BasedOnView=ALPackages,
             // SingleRow must be SOPackageDetailEx (matching what ALPackages yields), not SOPackageDetail.
-            // Mismatched row shapes cause AsgardUtils.GetAsResultset() to wrap incorrectly,
-            // leading to NullReferenceException in ParseAndPrintMultiple -> PXResult.UnwrapMain(obj)
+            // SingleRow is being aligned to the ALPackages row shape as a diagnostic step,
+            // but the actual failure may still be downstream in resultset conversion/iteration.
             PXTrace.WriteInformation("[SERVICE] === PATH C: SingleRow Population ===");
             
             try
@@ -277,6 +277,88 @@ namespace AA.Objects.AL.Integration.PerPackage
                 PXTrace.WriteInformation("[DIAG] Error during SingleRow analysis: {0}", diagEx.Message);
             }
             PXTrace.WriteInformation("[SERVICE] === END SingleRow Analysis ===");
+
+            // ✅ DIAGNOSTIC: Reproduce the exact GetAsResultset pipeline that BasicLabelGenerator uses
+            // This simulates what happens inside BasicLabelGenerator.PrintLabelInternal() when SingleRow is a plain DAC
+            PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: GetAsResultset Pipeline Simulation ===");
+            try
+            {
+                // This is what happens in BasicLabelGenerator when SingleRow is NOT a PXResult/IPXResultset:
+                // else { type = singleRow.GetType(); basedOnResult2 = new List<object> { singleRow }; }
+                object singleRow = printContext.SingleRow;
+                object basedOnResult2 = new List<object> { singleRow };
+
+                PXTrace.WriteInformation("[DIAG-PIPELINE] basedOnResult2.GetType(): {0}", 
+                    basedOnResult2?.GetType().FullName ?? "null");
+
+                // Call the same Asgard utility that BasicLabelGenerator calls
+                IPXResultset asResultset = AsgardUtils.GetAsResultset(basedOnResult2);
+
+                PXTrace.WriteInformation("[DIAG-PIPELINE] asResultset.GetType(): {0}", 
+                    asResultset?.GetType().FullName ?? "null");
+                PXTrace.WriteInformation("[DIAG-PIPELINE] asResultset.GetRowCount(): {0}", 
+                    asResultset?.GetRowCount() ?? -1);
+                PXTrace.WriteInformation("[DIAG-PIPELINE] asResultset.GetTableCount(): {0}", 
+                    asResultset?.GetTableCount() ?? -1);
+
+                // Get the collection that ParseAndPrintMultiple will iterate
+                object collectionObj = asResultset?.GetCollection();
+                System.Collections.IList list = collectionObj as System.Collections.IList;
+
+                PXTrace.WriteInformation("[DIAG-PIPELINE] GetCollection() returned null: {0}", list == null);
+                PXTrace.WriteInformation("[DIAG-PIPELINE] list type: {0}", 
+                    list?.GetType().FullName ?? "null");
+                PXTrace.WriteInformation("[DIAG-PIPELINE] list.Count: {0}", list != null ? list.Count : -1);
+
+                if (list != null && list.Count > 0)
+                {
+                    object listItem0 = list[0];
+
+                    PXTrace.WriteInformation("[DIAG-PIPELINE] list[0] is null: {0}", listItem0 == null);
+                    PXTrace.WriteInformation("[DIAG-PIPELINE] list[0].GetType(): {0}", 
+                        listItem0?.GetType().FullName ?? "null");
+                    PXTrace.WriteInformation("[DIAG-PIPELINE] list[0] is PXResult: {0}", listItem0 is PXResult);
+                    PXTrace.WriteInformation("[DIAG-PIPELINE] list[0] is IBqlTable: {0}", listItem0 is IBqlTable);
+
+                    // This is where ParseAndPrintMultiple calls UnwrapMain - test it here
+                    try
+                    {
+                        object unwrappedMain = PXResult.UnwrapMain(listItem0);
+                        PXTrace.WriteInformation("[DIAG-PIPELINE] PXResult.UnwrapMain(list[0]) succeeded: {0}", 
+                            unwrappedMain?.GetType().FullName ?? "null");
+                    }
+                    catch (Exception unwrapEx)
+                    {
+                        PXTrace.WriteInformation("[DIAG-PIPELINE] ⚠️ PXResult.UnwrapMain(list[0]) FAILED: {0}: {1}", 
+                            unwrapEx.GetType().FullName, unwrapEx.Message);
+                    }
+
+                    // Also try UnwrapFirst to see if that breaks too
+                    try
+                    {
+                        object unwrappedFirst = PXResult.UnwrapFirst(listItem0);
+                        PXTrace.WriteInformation("[DIAG-PIPELINE] PXResult.UnwrapFirst(list[0]) succeeded: {0}", 
+                            unwrappedFirst?.GetType().FullName ?? "null");
+                    }
+                    catch (Exception unwrapFirstEx)
+                    {
+                        PXTrace.WriteInformation("[DIAG-PIPELINE] ⚠️ PXResult.UnwrapFirst(list[0]) FAILED: {0}: {1}", 
+                            unwrapFirstEx.GetType().FullName, unwrapFirstEx.Message);
+                    }
+                }
+                else
+                {
+                    PXTrace.WriteInformation("[DIAG-PIPELINE] ⚠️ GetCollection() returned empty or null list");
+                }
+
+                PXTrace.WriteInformation("[SERVICE] === END GetAsResultset Pipeline Simulation ===");
+            }
+            catch (Exception pipelineEx)
+            {
+                PXTrace.WriteInformation("[DIAG-PIPELINE] ⚠️ GetAsResultset pipeline simulation FAILED: {0}: {1}", 
+                    pipelineEx.GetType().FullName, pipelineEx.Message);
+                PXTrace.WriteInformation("[SERVICE] === END GetAsResultset Pipeline Simulation (with error) ===");
+            }
 
             PXTrace.WriteInformation("[SERVICE] Calling _labelGenerator.PrintLabels()");
 
