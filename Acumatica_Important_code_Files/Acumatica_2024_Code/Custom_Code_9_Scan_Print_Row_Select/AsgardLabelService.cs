@@ -196,188 +196,146 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation(
                 $"[SERVICE] Row-selection native print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
 
-            // ✅ BEST PRACTICE TEST: Use the actual row from the filtered ALPackages view
-            // ALPackages is a PXSelectJoin with joins to SOShipment, CSBox, InventoryItem, ALTemplateItem
-            // So a real row from ALPackages is a joined PXResult, not a simple SOPackageDetailEx
-            // This test compares: synthetic wrapping (broken) vs real view row (expected to work)
-            PXTrace.WriteInformation("[SERVICE] === PATH C: SingleRow Population (ALPackages Real Row) ===");
-            
+            // ✅ DIAGNOSTIC: Instrument the native ViewDef → ViewResult → ViewSelect path
+            // This is what BasicLabelGenerator uses when SingleRow is null
+            PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: Native ALPackages Path Resolution ===");
             try
             {
-                // ✅ DIAGNOSTIC: First, try to get the row from the actual filtered ALPackages view
-                // This row should already be in the correct joined shape that Asgard expects
-                PXView alPackagesView = _graph.Views["ALPackages"];
-                if (alPackagesView != null)
+                string basedOnView = printContext.Model?.BasedOnView ?? "null";
+                PXTrace.WriteInformation("[DIAG-NATIVE] basedOnView={0}", basedOnView);
+
+                // Step 1: GetViewDefinition - what metadata does Asgard see for ALPackages?
+                PXTrace.WriteInformation("[DIAG-NATIVE] === STEP 1: ViewUtils.GetViewDefinition ===");
+                ViewDef viewDef = ViewUtils.GetViewDefinition(_graph, basedOnView);
+                
+                if (viewDef != null)
                 {
-                    PXTrace.WriteInformation("[SERVICE] ALPackages view found, attempting to select first row");
-                    
-                    // SelectMultiBound will use the current filter scope to return only the filtered row
-                    // CRITICAL: Do NOT force into PXResultset<SOPackageDetail> — preserve native row shape
-                    // ALPackages is a PXSelectJoin, so the real row is a joined PXResult with multiple tables
-                    var alPackagesRows = alPackagesView.SelectMultiBound(new object[] { _graph.Document.Current });
-                    object alPackagesFirstRow = alPackagesRows?.Cast<object>().FirstOrDefault();
-                    
-                    if (alPackagesFirstRow != null)
+                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewDef.InternalName: {0}", viewDef.InternalName);
+                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewDef.ItemType: {0}", viewDef.ItemType?.Name ?? "null");
+                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewDef.ItemTypes.Count: {0}", viewDef.ItemTypes?.Length ?? 0);
+                    if (viewDef.ItemTypes != null && viewDef.ItemTypes.Length > 0)
                     {
-                        PXTrace.WriteInformation("[DIAG-ALPACKAGES] ALPackages first row obtained");
-                        PXTrace.WriteInformation("[DIAG-ALPACKAGES] Real row type: {0}", 
-                            alPackagesFirstRow.GetType().FullName);
-                        PXTrace.WriteInformation("[DIAG-ALPACKAGES] Real row is PXResult: {0}", alPackagesFirstRow is PXResult);
-                        PXTrace.WriteInformation("[DIAG-ALPACKAGES] Real row is IBqlTable: {0}", alPackagesFirstRow is IBqlTable);
-                        PXTrace.WriteInformation("[DIAG-ALPACKAGES] Real row is IPXResultset: {0}", alPackagesFirstRow is IPXResultset);
-                        
-                        // Log if it's a PXResult and what it wraps
-                        if (alPackagesFirstRow is PXResult realRowResult)
+                        PXTrace.WriteInformation("[DIAG-NATIVE] ViewDef.ItemTypes: {0}", 
+                            string.Join(", ", viewDef.ItemTypes.Select(t => t.Name)));
+                    }
+                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewDef.Detail: {0}", viewDef.Detail);
+                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewDef.DependsOn: {0}", viewDef.DependsOn ?? "null");
+                }
+                else
+                {
+                    PXTrace.WriteInformation("[DIAG-NATIVE] ⚠️ ViewDef returned NULL for '{0}'", basedOnView);
+                }
+
+                // Step 2: GetViewRow - what does the native path construct?
+                PXTrace.WriteInformation("[DIAG-NATIVE] === STEP 2: ViewUtils.GetViewRow ===");
+                if (viewDef != null)
+                {
+                    IViewResult viewResult = ViewUtils.GetViewRow(_graph, viewDef);
+                    
+                    if (viewResult != null)
+                    {
+                        PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult type: {0}", viewResult.GetType().FullName);
+                        PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.InternalName: {0}", viewResult.InternalName);
+                        PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.TableCount: {0}", viewResult.TableCount);
+                        PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.ItemTypes.Count: {0}", viewResult.ItemTypes?.Count ?? 0);
+                        if (viewResult.ItemTypes != null && viewResult.ItemTypes.Count > 0)
                         {
-                            PXTrace.WriteInformation("[DIAG-ALPACKAGES] Real row IS PXResult with type arguments: {0}", 
-                                string.Join(",", realRowResult.GetType().GenericTypeArguments.Select(t => t.Name)));
+                            PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.ItemTypes: {0}", 
+                                string.Join(", ", viewResult.ItemTypes.Select(t => t.Name)));
                         }
-                        
-                        // ✅ Assign the REAL row from ALPackages to SingleRow
-                        // This is the shape Asgard expects for BasedOnView=ALPackages
-                        printContext.SingleRow = alPackagesFirstRow;
-                        PXTrace.WriteInformation("[SERVICE] ✅ Set printContext.SingleRow to REAL ALPackages row (type: {0})", 
-                            alPackagesFirstRow.GetType().Name);
-                        PXTrace.WriteInformation("[SERVICE] This is the actual joined row shape that ALPackages yields (NOT forced into typed resultset)");
+                        PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.Result type: {0}", 
+                            viewResult.Result?.GetType().FullName ?? "null");
+                        PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.Result is null: {0}", viewResult.Result == null);
+                        PXTrace.WriteInformation("[DIAG-NATIVE] ViewResult.Detail: {0}", viewResult.Detail);
                     }
                     else
                     {
-                        PXTrace.WriteInformation("[SERVICE] ⚠️ Could not get row from ALPackages view - result was null or empty");
+                        PXTrace.WriteInformation("[DIAG-NATIVE] ⚠️ ViewResult returned NULL");
                     }
                 }
-                else
-                {
-                    PXTrace.WriteInformation("[SERVICE] ⚠️ ALPackages view not found in graph");
-                }
-            }
-            catch (Exception ex)
-            {
-                PXTrace.WriteInformation("[SERVICE] ⚠️ Error getting row from ALPackages view: {0}: {1}", 
-                    ex.GetType().FullName, ex.Message);
-            }
 
-            // ✅ DIAGNOSTIC: Trace context state before PrintLabels
-            PXTrace.WriteInformation("[SERVICE] === CONTEXT STATE (BEFORE PRINTLABELS) ===");
-            PXTrace.WriteInformation("[SERVICE] printContext.SingleRow: {0}", 
-                printContext.SingleRow != null ? printContext.SingleRow.GetType().Name : "null");
-            PXTrace.WriteInformation("[SERVICE] printContext.Row (shipment): {0}", 
-                printContext.Row != null ? printContext.Row.GetType().Name : "null");
-            PXTrace.WriteInformation("[SERVICE] printContext.Model.BasedOnView: {0}", printContext.Model.BasedOnView);
-            PXTrace.WriteInformation("[SERVICE] printContext.IsDesignMode: {0}", printContext.IsDesignMode);
-            PXTrace.WriteInformation("[SERVICE] === END CONTEXT STATE ===");
-
-            // ✅ DIAGNOSTIC: Deep inspection of SingleRow before GetAsResultset
-            PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: SingleRow Analysis (INPUT TO GETASRESULTSET) ===");
-            try
-            {
-                if (printContext.SingleRow != null)
+                // Step 3: ViewSelect - what does the direct select return?
+                PXTrace.WriteInformation("[DIAG-NATIVE] === STEP 3: ViewUtils.ViewSelect ===");
+                object viewSelectResult = ViewUtils.ViewSelect(_graph, basedOnView);
+                
+                if (viewSelectResult != null)
                 {
-                    PXTrace.WriteInformation("[DIAG] SingleRow.GetType(): {0}", printContext.SingleRow.GetType().FullName);
-                    PXTrace.WriteInformation("[DIAG] SingleRow is IBqlTable: {0}", printContext.SingleRow is IBqlTable);
-                    PXTrace.WriteInformation("[DIAG] SingleRow is PXResult: {0}", printContext.SingleRow is PXResult);
-                    PXTrace.WriteInformation("[DIAG] SingleRow is IPXResultset: {0}", printContext.SingleRow is IPXResultset);
-                    PXTrace.WriteInformation("[DIAG] SingleRow is IList: {0}", printContext.SingleRow is System.Collections.IList);
+                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect result type: {0}", viewSelectResult.GetType().FullName);
                     
-                    // Check if it's a PXResult and what it wraps
-                    if (printContext.SingleRow is PXResult pr)
+                    // Materialize enumerable once to avoid multiple enumerations
+                    var enumerable = viewSelectResult as System.Collections.IEnumerable;
+                    List<object> viewSelectList = null;
+                    int viewSelectRowCount = 0;
+                    object viewSelectFirstRow = null;
+                    
+                    if (enumerable != null)
                     {
-                        PXTrace.WriteInformation("[DIAG] SingleRow IS PXResult - checking wrapped types");
-                        PXTrace.WriteInformation("[DIAG] PXResult.GetType().GenericTypeArguments: {0}", 
-                            string.Join(",", pr.GetType().GenericTypeArguments.Select(t => t.Name)));
+                        viewSelectList = enumerable.Cast<object>().ToList();
+                        viewSelectRowCount = viewSelectList.Count;
+                        viewSelectFirstRow = viewSelectList.FirstOrDefault();
+                        
+                        PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect row count: {0}", viewSelectRowCount);
+                        if (viewSelectFirstRow != null)
+                        {
+                            PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect first row type: {0}", viewSelectFirstRow.GetType().FullName);
+                            PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect first row is PXResult: {0}", viewSelectFirstRow is PXResult);
+                            PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect first row is IBqlTable: {0}", viewSelectFirstRow is IBqlTable);
+                            
+                            if (viewSelectFirstRow is PXResult pr)
+                            {
+                                PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect first row PXResult type args: {0}", 
+                                    string.Join(",", pr.GetType().GenericTypeArguments.Select(t => t.Name)));
+                            }
+                        }
+                    }
+                    else
+                    {
+                        PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect result is not enumerable");
+                    }
+
+                    // Comparison: Manual SelectMultiBound vs Native ViewSelect
+                    PXTrace.WriteInformation("[DIAG-NATIVE] === COMPARISON: Manual SelectMultiBound vs Native ViewSelect ===");
+                    PXView alPackagesView = _graph.Views["ALPackages"];
+                    if (alPackagesView != null)
+                    {
+                        var manualResult = alPackagesView.SelectMultiBound(new object[] { _graph.Document.Current });
+                        List<object> manualList = manualResult?.Cast<object>().ToList() ?? new List<object>();
+                        int manualRowCount = manualList.Count;
+                        object manualFirstRow = manualList.FirstOrDefault();
+                        
+                        PXTrace.WriteInformation("[DIAG-NATIVE] Manual SelectMultiBound row count: {0}", manualRowCount);
+                        if (manualFirstRow != null)
+                        {
+                            PXTrace.WriteInformation("[DIAG-NATIVE] Manual SelectMultiBound first row type: {0}", manualFirstRow.GetType().FullName);
+                            PXTrace.WriteInformation("[DIAG-NATIVE] Manual SelectMultiBound first row is PXResult: {0}", manualFirstRow is PXResult);
+                        }
+                        
+                        PXTrace.WriteInformation("[DIAG-NATIVE] Comparison result - same row count: {0}", 
+                            manualRowCount == viewSelectRowCount);
+                        PXTrace.WriteInformation("[DIAG-NATIVE] Comparison result - same first row type: {0}", 
+                            manualFirstRow?.GetType().FullName == viewSelectFirstRow?.GetType().FullName);
                     }
                 }
                 else
                 {
-                    PXTrace.WriteInformation("[DIAG] SingleRow is NULL");
-                }
-            }
-            catch (Exception diagEx)
-            {
-                PXTrace.WriteInformation("[DIAG] Error during SingleRow analysis: {0}", diagEx.Message);
-            }
-            PXTrace.WriteInformation("[SERVICE] === END SingleRow Analysis ===");
-
-            // ✅ DIAGNOSTIC: Reproduce the exact GetAsResultset pipeline that BasicLabelGenerator uses
-            // This simulates what happens inside BasicLabelGenerator.PrintLabelInternal() when SingleRow is a plain DAC
-            PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: GetAsResultset Pipeline Simulation ===");
-            try
-            {
-                // This is what happens in BasicLabelGenerator when SingleRow is NOT a PXResult/IPXResultset:
-                // else { type = singleRow.GetType(); basedOnResult2 = new List<object> { singleRow }; }
-                object singleRow = printContext.SingleRow;
-                object basedOnResult2 = new List<object> { singleRow };
-
-                PXTrace.WriteInformation("[DIAG-PIPELINE] basedOnResult2.GetType(): {0}", 
-                    basedOnResult2?.GetType().FullName ?? "null");
-
-                // Call the same Asgard utility that BasicLabelGenerator calls
-                IPXResultset asResultset = AsgardUtils.GetAsResultset(basedOnResult2);
-
-                PXTrace.WriteInformation("[DIAG-PIPELINE] asResultset.GetType(): {0}", 
-                    asResultset?.GetType().FullName ?? "null");
-                PXTrace.WriteInformation("[DIAG-PIPELINE] asResultset.GetRowCount(): {0}", 
-                    asResultset?.GetRowCount() ?? -1);
-                PXTrace.WriteInformation("[DIAG-PIPELINE] asResultset.GetTableCount(): {0}", 
-                    asResultset?.GetTableCount() ?? -1);
-
-                // Get the collection that ParseAndPrintMultiple will iterate
-                object collectionObj = asResultset?.GetCollection();
-                System.Collections.IList list = collectionObj as System.Collections.IList;
-
-                PXTrace.WriteInformation("[DIAG-PIPELINE] GetCollection() returned null: {0}", list == null);
-                PXTrace.WriteInformation("[DIAG-PIPELINE] list type: {0}", 
-                    list?.GetType().FullName ?? "null");
-                PXTrace.WriteInformation("[DIAG-PIPELINE] list.Count: {0}", list != null ? list.Count : -1);
-
-                if (list != null && list.Count > 0)
-                {
-                    object listItem0 = list[0];
-
-                    PXTrace.WriteInformation("[DIAG-PIPELINE] list[0] is null: {0}", listItem0 == null);
-                    PXTrace.WriteInformation("[DIAG-PIPELINE] list[0].GetType(): {0}", 
-                        listItem0?.GetType().FullName ?? "null");
-                    PXTrace.WriteInformation("[DIAG-PIPELINE] list[0] is PXResult: {0}", listItem0 is PXResult);
-                    PXTrace.WriteInformation("[DIAG-PIPELINE] list[0] is IBqlTable: {0}", listItem0 is IBqlTable);
-
-                    // This is where ParseAndPrintMultiple calls UnwrapMain - test it here
-                    try
-                    {
-                        object unwrappedMain = PXResult.UnwrapMain(listItem0);
-                        PXTrace.WriteInformation("[DIAG-PIPELINE] PXResult.UnwrapMain(list[0]) succeeded: {0}", 
-                            unwrappedMain?.GetType().FullName ?? "null");
-                    }
-                    catch (Exception unwrapEx)
-                    {
-                        PXTrace.WriteInformation("[DIAG-PIPELINE] ⚠️ PXResult.UnwrapMain(list[0]) FAILED: {0}: {1}", 
-                            unwrapEx.GetType().FullName, unwrapEx.Message);
-                    }
-
-                    // Also try UnwrapFirst to see if that breaks too
-                    try
-                    {
-                        object unwrappedFirst = PXResult.UnwrapFirst(listItem0);
-                        PXTrace.WriteInformation("[DIAG-PIPELINE] PXResult.UnwrapFirst(list[0]) succeeded: {0}", 
-                            unwrappedFirst?.GetType().FullName ?? "null");
-                    }
-                    catch (Exception unwrapFirstEx)
-                    {
-                        PXTrace.WriteInformation("[DIAG-PIPELINE] ⚠️ PXResult.UnwrapFirst(list[0]) FAILED: {0}: {1}", 
-                            unwrapFirstEx.GetType().FullName, unwrapFirstEx.Message);
-                    }
-                }
-                else
-                {
-                    PXTrace.WriteInformation("[DIAG-PIPELINE] ⚠️ GetCollection() returned empty or null list");
+                    PXTrace.WriteInformation("[DIAG-NATIVE] ⚠️ ViewSelect result is NULL");
                 }
 
-                PXTrace.WriteInformation("[SERVICE] === END GetAsResultset Pipeline Simulation ===");
+                PXTrace.WriteInformation("[SERVICE] === END Native ALPackages Path Resolution ===");
             }
-            catch (Exception pipelineEx)
+            catch (Exception nativePathEx)
             {
-                PXTrace.WriteInformation("[DIAG-PIPELINE] ⚠️ GetAsResultset pipeline simulation FAILED: {0}: {1}", 
-                    pipelineEx.GetType().FullName, pipelineEx.Message);
-                PXTrace.WriteInformation("[SERVICE] === END GetAsResultset Pipeline Simulation (with error) ===");
+                PXTrace.WriteInformation("[DIAG-NATIVE] ⚠️ Error during native path diagnostics: {0}: {1}", 
+                    nativePathEx.GetType().FullName, nativePathEx.Message);
+                PXTrace.WriteInformation("[SERVICE] === END Native ALPackages Path Resolution (with error) ===");
             }
+
+            // ✅ DIAGNOSTIC: Leave SingleRow null to test the native ALPackages path
+            // The native path is: BasicLabelGenerator → GetViewDefinition → GetViewRow → ViewSelect
+            PXTrace.WriteInformation("[SERVICE] === SingleRow Diagnostic Path ===");
+            PXTrace.WriteInformation("[SERVICE] SingleRow is being LEFT NULL to test native ALPackages path");
+            PXTrace.WriteInformation("[SERVICE] BasicLabelGenerator will use ViewDef/ViewResult/ViewSelect instead");
+            PXTrace.WriteInformation("[SERVICE] === END SingleRow Diagnostic Path ===");
 
             PXTrace.WriteInformation("[SERVICE] Calling _labelGenerator.PrintLabels()");
 
