@@ -142,11 +142,11 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             PXTrace.WriteInformation("[SERVICE] Verifying package {0} exists in shipment {1}", selectedPackageLineNbr, shipment.ShipmentNbr);
 
-            SOPackageDetail packageToVerify = PXSelect<
-                SOPackageDetail,
+            SOPackageDetailEx packageToVerify = PXSelect<
+                SOPackageDetailEx,
                 Where<
-                    SOPackageDetail.shipmentNbr, Equal<Required<SOPackageDetail.shipmentNbr>>,
-                    And<SOPackageDetail.lineNbr, Equal<Required<SOPackageDetail.lineNbr>>>>>
+                    SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
+                    And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
                 .Select(_graph, shipment.ShipmentNbr, selectedPackageLineNbr);
 
             if (packageToVerify == null)
@@ -199,31 +199,33 @@ namespace AA.Objects.AL.Integration.PerPackage
             // ✅ PATH C: Set SingleRow to bypass view resolution
             // BasicLabelGenerator.PrintLabelInternal() checks SingleRow first. If populated, it uses that directly.
             // Otherwise it falls back to ViewUtils.GetViewDefinition(graph, model.BasedOnView)
-            // 
-            // CRITICAL: SingleRow must be a plain DAC (SOPackageDetail), NOT a wrapped PXResult<SOPackageDetail>
-            // The SingleRow branch derives the cache type from singleRow.GetType(), and a lone PXResult<T>
-            // would produce the wrapper type instead of the DAC type, causing TypeLoadException in PXCache.
+            //
+            // CRITICAL: SingleRow must match the row type of BasedOnView (ALPackages)
+            // The model's BasedOnView determines the expected row shape. If BasedOnView=ALPackages,
+            // SingleRow must be SOPackageDetailEx (matching what ALPackages yields), not SOPackageDetail.
+            // Mismatched row shapes cause AsgardUtils.GetAsResultset() to wrap incorrectly,
+            // leading to NullReferenceException in ParseAndPrintMultiple -> PXResult.UnwrapMain(obj)
             PXTrace.WriteInformation("[SERVICE] === PATH C: SingleRow Population ===");
             
             try
             {
-                // Query the selected package as a PXResult
-                PXResultset<SOPackageDetail> packageResult = PXSelect<SOPackageDetail,
-                    Where<SOPackageDetail.shipmentNbr, Equal<Required<SOPackageDetail.shipmentNbr>>,
-                    And<SOPackageDetail.lineNbr, Equal<Required<SOPackageDetail.lineNbr>>>>>
+                // Query the selected package as SOPackageDetailEx to match ALPackages row type
+                PXResultset<SOPackageDetailEx> packageResult = PXSelect<SOPackageDetailEx,
+                    Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
+                    And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
                     .Select(_graph, shipment.ShipmentNbr, selectedPackageLineNbr);
 
                 if (packageResult != null && packageResult.Count > 0)
                 {
                     // ✅ Extract the plain DAC from the PXResult wrapper
-                    // packageResult[0] is a PXResult<SOPackageDetail>, we need the plain SOPackageDetail
-                    PXResult<SOPackageDetail> wrappedRow = packageResult[0];
-                    SOPackageDetail selectedPackageRow = (SOPackageDetail)wrappedRow;
+                    // packageResult[0] is a PXResult<SOPackageDetailEx>, we need the plain SOPackageDetailEx
+                    PXResult<SOPackageDetailEx> wrappedRow = packageResult[0];
+                    SOPackageDetailEx selectedPackageRow = (SOPackageDetailEx)wrappedRow;
                     
                     printContext.SingleRow = selectedPackageRow;
                     PXTrace.WriteInformation("[SERVICE] ✅ Set printContext.SingleRow to selected package row (type: {0})", 
                         selectedPackageRow.GetType().Name);
-                    PXTrace.WriteInformation("[SERVICE] This will force BasicLabelGenerator to skip view resolution and use SingleRow path");
+                    PXTrace.WriteInformation("[SERVICE] Row type matches BasedOnView (ALPackages) - GetAsResultset will wrap correctly");
                 }
                 else
                 {
