@@ -305,9 +305,9 @@ namespace AA.Objects.AL.Integration.PerPackage
                                 SOPackageDetail pkgDetail = PXResult.Unwrap<SOPackageDetail>(row);
                                 if (pkgDetail != null)
                                 {
-                                    int? lineNbr = pkgDetail.LineNbr;
+                                    int displayValue = (pkgDetail.LineNbr == null) ? -1 : pkgDetail.LineNbr.Value;
                                     PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect row {0}: SOPackageDetail.LineNbr = {1}", 
-                                        i, lineNbr.HasValue ? lineNbr.Value : -1);
+                                        i, displayValue);
                                 }
                                 else
                                 {
@@ -347,9 +347,9 @@ namespace AA.Objects.AL.Integration.PerPackage
                                     SOPackageDetail pkgDetail = PXResult.Unwrap<SOPackageDetail>(manualList[i]);
                                     if (pkgDetail != null)
                                     {
-                                        int? lineNbr = pkgDetail.LineNbr;
+                                        int displayValue = (pkgDetail.LineNbr == null) ? -1 : pkgDetail.LineNbr.Value;
                                         PXTrace.WriteInformation("[DIAG-NATIVE] Manual row {0}: LineNbr = {1}", 
-                                            i, lineNbr.HasValue ? lineNbr.Value : -1);
+                                            i, displayValue);
                                     }
                                 }
                                 catch { }
