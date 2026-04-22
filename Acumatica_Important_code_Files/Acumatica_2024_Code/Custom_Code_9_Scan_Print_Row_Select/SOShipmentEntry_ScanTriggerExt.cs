@@ -29,38 +29,19 @@ namespace AA.Objects.AL.Integration.PerPackage
                     return;
                 }
 
-                // ✅ NEW: Check if THIS package is the CURRENTLY SELECTED row
-                SOPackageDetail currentSelectedPackage = Base.Packages.Current;
-                
-                if (currentSelectedPackage == null)
-                {
-                    PXTrace.WriteInformation("[SKIP] No package is currently selected in the grid");
-                    return;
-                }
-
-                // ✅ Only print if the confirmed package is the same as the selected row
-                if (currentSelectedPackage.LineNbr != package.LineNbr)
-                {
-                    PXTrace.WriteInformation(
-                        "[SKIP] Confirmed package {0} is not the selected row (selected: {1})",
-                        package.LineNbr,
-                        currentSelectedPackage.LineNbr);
-                    return;
-                }
-
-                PXTrace.WriteInformation(
-                    "[PASS] Package {0} confirmed and is the selected row in shipment {1}",
+                PXTrace.WriteInformation("[PASS] Package {0} confirmed in shipment {1}",
                     package.LineNbr,
                     shipment.ShipmentNbr);
 
+                // ✅ DEFER to PXLongOperation - do NOT call PrintForPackage directly!
                 string shipmentNbr = shipment.ShipmentNbr;
                 int packageLineNbr = (int)package.LineNbr;
 
-                // ✅ Use PXLongOperation to defer print action outside of RowPersisted context
                 PXLongOperation.StartOperation(Base, delegate()
                 {
                     PXTrace.WriteInformation("[LONGOP] Started for package {0}", packageLineNbr);
 
+                    // Create fresh graph inside long operation
                     SOShipmentEntry graph = PXGraph.CreateInstance<SOShipmentEntry>();
                     SOShipment reloadedShipment = SOShipment.PK.Find(graph, shipmentNbr);
 
@@ -72,6 +53,7 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                     graph.Document.Current = reloadedShipment;
 
+                    // Get Asgard extension from fresh graph
                     var asgardExt = graph.FindImplementation<SOShipmentEntry_AsgardExt>();
 
                     if (asgardExt == null)
@@ -80,16 +62,16 @@ namespace AA.Objects.AL.Integration.PerPackage
                         return;
                     }
 
-                    PXTrace.WriteInformation("[CALLING] PrintForPackage() with package line {0}", packageLineNbr);
+                    PXTrace.WriteInformation("[CALLING] PrintForPackage() in long operation");
 
-                    // ✅ NEW: Pass the selected package line number explicitly
+                    // Call PrintForPackage on the fresh graph
                     PXAdapter adapter = new PXAdapter(graph.Document);
                     adapter.Searches = new string[] { };
                     adapter.Parameters = new object[] { };
 
-                    asgardExt.PrintForPackage(adapter, packageLineNbr);
+                    asgardExt.PrintForPackage(adapter);
 
-                    PXTrace.WriteInformation("[SUCCESS] PrintForPackage() completed for package {0}", packageLineNbr);
+                    PXTrace.WriteInformation("[SUCCESS] PrintForPackage() completed");
                 });
             }
             catch (Exception ex)
