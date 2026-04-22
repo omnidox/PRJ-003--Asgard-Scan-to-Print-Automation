@@ -293,6 +293,34 @@ namespace AA.Objects.AL.Integration.PerPackage
                         PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect result is not enumerable");
                     }
 
+                    // Log the actual package line numbers from ViewSelect result
+                    PXTrace.WriteInformation("[DIAG-NATIVE] === Package line numbers in ViewSelect result ===");
+                    if (viewSelectList != null && viewSelectList.Count > 0)
+                    {
+                        for (int i = 0; i < Math.Min(5, viewSelectList.Count); i++)
+                        {
+                            object row = viewSelectList[i];
+                            try
+                            {
+                                SOPackageDetail pkgDetail = PXResult.Unwrap<SOPackageDetail>(row);
+                                if (pkgDetail != null)
+                                {
+                                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect row {0}: SOPackageDetail.LineNbr = {1}", 
+                                        i, pkgDetail.LineNbr ?? -1);
+                                }
+                                else
+                                {
+                                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect row {0}: Unwrapped to null", i);
+                                }
+                            }
+                            catch (Exception unwrapEx)
+                            {
+                                PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect row {0}: Failed to unwrap - {1}", 
+                                    i, unwrapEx.Message);
+                            }
+                        }
+                    }
+
                     // Comparison: Manual SelectMultiBound vs Native ViewSelect
                     PXTrace.WriteInformation("[DIAG-NATIVE] === COMPARISON: Manual SelectMultiBound vs Native ViewSelect ===");
                     PXView alPackagesView = _graph.Views["ALPackages"];
@@ -308,6 +336,22 @@ namespace AA.Objects.AL.Integration.PerPackage
                         {
                             PXTrace.WriteInformation("[DIAG-NATIVE] Manual SelectMultiBound first row type: {0}", manualFirstRow.GetType().FullName);
                             PXTrace.WriteInformation("[DIAG-NATIVE] Manual SelectMultiBound first row is PXResult: {0}", manualFirstRow is PXResult);
+                            
+                            // Also log the package line numbers from manual result
+                            PXTrace.WriteInformation("[DIAG-NATIVE] Manual SelectMultiBound package line numbers:");
+                            for (int i = 0; i < Math.Min(5, manualList.Count); i++)
+                            {
+                                try
+                                {
+                                    SOPackageDetail pkgDetail = PXResult.Unwrap<SOPackageDetail>(manualList[i]);
+                                    if (pkgDetail != null)
+                                    {
+                                        PXTrace.WriteInformation("[DIAG-NATIVE] Manual row {0}: LineNbr = {1}", 
+                                            i, pkgDetail.LineNbr ?? -1);
+                                    }
+                                }
+                                catch { }
+                            }
                         }
                         
                         PXTrace.WriteInformation("[DIAG-NATIVE] Comparison result - same row count: {0}", 
@@ -337,6 +381,30 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation("[SERVICE] BasicLabelGenerator will use ViewDef/ViewResult/ViewSelect instead");
             PXTrace.WriteInformation("[SERVICE] === END SingleRow Diagnostic Path ===");
 
+            // ✅ DIAGNOSTIC: Inspect print eligibility before calling PrintLabels
+            // Focus on: Factual state only, no speculation
+            PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: Print Eligibility Pre-Inspection ===");
+            try
+            {
+                // Log factual state before PrintLabels
+                PXTrace.WriteInformation("[DIAG-ELIGIBILITY] printContext.SingleRow is NULL: {0}", 
+                    printContext.SingleRow == null);
+                PXTrace.WriteInformation("[DIAG-ELIGIBILITY] ALPackagesFilterScope.IsActive: {0}", 
+                    ALPackagesFilterScope.IsActive);
+                PXTrace.WriteInformation("[DIAG-ELIGIBILITY] printContext.Model.BasedOnView: {0}", 
+                    printContext.Model?.BasedOnView ?? "null");
+                PXTrace.WriteInformation("[DIAG-ELIGIBILITY] Expected package to print: line {0}", 
+                    selectedPackageLineNbr);
+
+                PXTrace.WriteInformation("[SERVICE] === END Print Eligibility Pre-Inspection ===");
+            }
+            catch (Exception eligEx)
+            {
+                PXTrace.WriteInformation("[DIAG-ELIGIBILITY] ⚠️ Error during eligibility inspection: {0}: {1}", 
+                    eligEx.GetType().FullName, eligEx.Message);
+                PXTrace.WriteInformation("[SERVICE] === END Print Eligibility Pre-Inspection (with error) ===");
+            }
+
             PXTrace.WriteInformation("[SERVICE] Calling _labelGenerator.PrintLabels()");
 
             // ✅ DIAGNOSTIC: Wrap PrintLabels call to capture what happens
@@ -346,6 +414,22 @@ namespace AA.Objects.AL.Integration.PerPackage
                 
                 if (results == null)
                     throw new PXException("PrintLabels returned null.");
+
+                // ✅ DIAGNOSTIC: Analyze print results
+                PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: Print Results Analysis ===");
+                PXTrace.WriteInformation("[DIAG-RESULTS] NbLabels: {0}", results.NbLabels ?? 0);
+                PXTrace.WriteInformation("[DIAG-RESULTS] PrintResults type: {0}", results.GetType().FullName);
+                
+                if ((results.NbLabels ?? 0) == 0)
+                {
+                    PXTrace.WriteInformation("[DIAG-RESULTS] ⚠️ Zero labels generated");
+                }
+                else
+                {
+                    PXTrace.WriteInformation("[DIAG-RESULTS] ✅ Labels generated: {0}", results.NbLabels);
+                }
+
+                PXTrace.WriteInformation("[SERVICE] === END Print Results Analysis ===");
 
                 PXTrace.WriteInformation(
                     $"[SERVICE] Row-selection native print finished: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
