@@ -119,16 +119,16 @@ namespace AA.Objects.AL.Integration.PerPackage
                 graph.Packages.Current = selectedPackage;
                 PXTrace.WriteInformation("[LONGOP] Packages.Current set to line {0}", packageLineNbr);
 
-                // ✅ Force the ALPackages view to load and populate with data
-                var alPackagesData = graph.Views["ALPackages"].SelectMultiBound(new object[] { shipmentInLongOp });
-                PXTrace.WriteInformation("[LONGOP] ALPackages view loaded with {0} packages", alPackagesData.Count());
-
-                // ✅ ALSO activate scope so filter extension sees it if called
+                // ✅ CRITICAL: Activate scope FIRST, THEN load the view so filter sees active scope
                 using (ALPackagesFilterScope.Activate(shipmentNbr, new int?[] { packageLineNbr }))
                 {
                     PXTrace.WriteInformation("[LONGOP] Filter scope activated for shipment {0}, package {1}", shipmentNbr, packageLineNbr);
 
-                    // Call service with both scope active AND Packages.Current set
+                    // ✅ NOW load the ALPackages view with scope active - filter will see it!
+                    var alPackagesData = graph.Views["ALPackages"].SelectMultiBound(new object[] { shipmentInLongOp });
+                    PXTrace.WriteInformation("[LONGOP] ALPackages view loaded with {0} packages", alPackagesData.Count());
+
+                    // Call service with scope active AND Packages.Current set
                     PrintResults results = asgardService.PrintSelectedPackageUsingNativeContext(
                         shipmentInLongOp,
                         modelId,
