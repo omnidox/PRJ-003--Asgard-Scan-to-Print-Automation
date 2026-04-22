@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Linq;
 using PX.Data;
 using PX.Data.DependencyInjection;
 using PX.Objects.SO;
@@ -103,10 +104,10 @@ namespace AA.Objects.AL.Integration.PerPackage
                 // to ensure Asgard only sees the selected package
                 PXTrace.WriteInformation("[LONGOP] Setting selected package to {0} in Packages view", packageLineNbr);
 
-                SOPackageDetail selectedPackage = PXSelect<
-                    SOPackageDetail,
-                    Where<SOPackageDetail.shipmentNbr, Equal<Required<SOPackageDetail.shipmentNbr>>,
-                    And<SOPackageDetail.lineNbr, Equal<Required<SOPackageDetail.lineNbr>>>>>
+                SOPackageDetailEx selectedPackage = PXSelect<
+                    SOPackageDetailEx,
+                    Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
+                    And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
                     .Select(graph, shipmentNbr, packageLineNbr).FirstOrDefault();
 
                 if (selectedPackage == null)
