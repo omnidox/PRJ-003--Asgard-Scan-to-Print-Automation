@@ -412,6 +412,47 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             PXTrace.WriteInformation("[SERVICE] Calling _labelGenerator.PrintLabels()");
 
+            // ✅ DIAGNOSTIC: PRINT-GATING LOGIC INSPECTION
+            // Focus: Factual package state before PrintLabels is called
+            PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: Package State Pre-Print ===");
+            try
+            {
+                PXTrace.WriteInformation("[DIAG-GATE] Selected package line to print: {0}", selectedPackageLineNbr);
+                
+                // Query the package row directly to inspect concrete field state
+                SOPackageDetailEx packageRow = PXSelect<
+                    SOPackageDetailEx,
+                    Where<
+                        SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
+                        And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
+                    .Select(_graph, shipment.ShipmentNbr, selectedPackageLineNbr);
+
+                if (packageRow != null)
+                {
+                    PXTrace.WriteInformation("[DIAG-GATE] Package row {0} EXISTS: ShipmentNbr={1}", 
+                        selectedPackageLineNbr, packageRow.ShipmentNbr ?? "null");
+                    PXTrace.WriteInformation("[DIAG-GATE] Package.BoxID: {0}", packageRow.BoxID ?? "null");
+                    PXTrace.WriteInformation("[DIAG-GATE] Package.Weight: {0}", packageRow.Weight);
+                    PXTrace.WriteInformation("[DIAG-GATE] Package.Description: {0}", packageRow.Description ?? "null");
+                    
+                    // Attempt to access any user-defined or extension print flag fields
+                    // Log what we can inspect from the row's type
+                    PXTrace.WriteInformation("[DIAG-GATE] Package row type: {0}", packageRow.GetType().FullName);
+                }
+                else
+                {
+                    PXTrace.WriteInformation("[DIAG-GATE] ⚠️ Package row {0} NOT FOUND during pre-print state check", selectedPackageLineNbr);
+                }
+
+                PXTrace.WriteInformation("[SERVICE] === END Package State Pre-Print ===");
+            }
+            catch (Exception gateEx)
+            {
+                PXTrace.WriteInformation("[DIAG-GATE] ⚠️ Error during package state inspection: {0}: {1}", 
+                    gateEx.GetType().FullName, gateEx.Message);
+                PXTrace.WriteInformation("[SERVICE] === END Package State Pre-Print (with error) ===");
+            }
+
             // ✅ DIAGNOSTIC: Wrap PrintLabels call to capture what happens
             try
             {
@@ -429,6 +470,8 @@ namespace AA.Objects.AL.Integration.PerPackage
                 if (nbLabelsValue == 0)
                 {
                     PXTrace.WriteInformation("[DIAG-RESULTS] ⚠️ Zero labels generated");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] Selected package: LineNbr={0}", selectedPackageLineNbr);
+                    PXTrace.WriteInformation("[DIAG-RESULTS] Document condition: Evaluated to TRUE (confirmed in earlier trace)");
                 }
                 else
                 {
