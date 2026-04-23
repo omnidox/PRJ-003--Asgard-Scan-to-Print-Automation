@@ -422,7 +422,7 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 // ✅ DIAGNOSTIC: Analyze print results
                 PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: Print Results Analysis ===");
-                int nbLabelsValue = results.NbLabels != null ? results.NbLabels.Value : 0;
+                int nbLabelsValue = results.NbLabels;
                 PXTrace.WriteInformation("[DIAG-RESULTS] NbLabels: {0}", nbLabelsValue);
                 PXTrace.WriteInformation("[DIAG-RESULTS] PrintResults type: {0}", results.GetType().FullName);
                 
@@ -438,7 +438,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                 PXTrace.WriteInformation("[SERVICE] === END Print Results Analysis ===");
 
                 PXTrace.WriteInformation(
-                    $"[SERVICE] Row-selection native print finished: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
+                    $"[SERVICE] Row-selection native print finished: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={nbLabelsValue}");
 
                 return results;
             }
