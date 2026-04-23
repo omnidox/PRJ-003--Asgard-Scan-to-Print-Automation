@@ -163,6 +163,11 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation(
                 $"[SERVICE] Row-selection native print: shipment {shipment.ShipmentNbr} will print package line {selectedPackageLineNbr}");
 
+            // ✅ CRITICAL: Set Packages.Current inside the service to ensure correct context
+            // This is essential because CreatePrintContext uses the current package row for the label
+            PXTrace.WriteInformation("[SERVICE] Setting Packages.Current to line {0} before CreatePrintContext", selectedPackageLineNbr);
+            _graph.Packages.Current = packageToVerify;
+
             // ✅ CRITICAL: Assume filter scope is already activated by the caller (SOShipmentEntry_AsgardExt)
             // This allows the scope to remain active across the fresh graph context
             PXTrace.WriteInformation("[SERVICE] Calling CreatePrintContext with Graph={0}, ShipmentNbr={1}, ModelID={2}", 
