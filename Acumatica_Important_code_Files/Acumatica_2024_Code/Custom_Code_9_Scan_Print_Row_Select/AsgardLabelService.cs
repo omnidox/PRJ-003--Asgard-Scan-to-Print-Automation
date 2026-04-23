@@ -449,8 +449,6 @@ namespace AA.Objects.AL.Integration.PerPackage
                     {
                         PXTrace.WriteInformation("[DIAG-GATE] printContext.Model.NbCopiesExpr: {0}", 
                             printContext.Model.NbCopiesExpr ?? "null");
-                        PXTrace.WriteInformation("[DIAG-GATE] printContext.Model.NbCopiesOverride: {0}", 
-                            printContext.Model.NbCopiesOverride ?? -1);
                     }
                     
                     // Get the unwrapped main row (what lc.LabelRow resolves to)
@@ -498,6 +496,138 @@ namespace AA.Objects.AL.Integration.PerPackage
                     gateEx.GetType().FullName, gateEx.Message);
                 PXTrace.WriteInformation("[SERVICE] === END Print-Gating Logic Pre-Inspection (with error) ===");
             }
+
+            // ✅ CRITICAL DIAGNOSTIC: COPY-COUNT PROOF BLOCK
+            // This proves exactly why NbLabels=0 by inspecting the actual DetailRows and their copy-count resolution
+            PXTrace.WriteInformation("[PROOF] === BEGIN COPY-COUNT PROOF ===");
+            try
+            {
+                object basedOnRows = ViewUtils.ViewSelect(_graph, printContext.Model.BasedOnView);
+                IPXResultset rs = AsgardUtils.GetAsResultset(basedOnRows);
+
+                if (rs == null)
+                {
+                    PXTrace.WriteInformation("[PROOF] ViewSelect result could not be converted to IPXResultset");
+                }
+                else
+                {
+                    IList rows = (IList)rs.GetCollection();
+                    PXTrace.WriteInformation("[PROOF] BasedOnView={0}, RowCount={1}",
+                        printContext.Model.BasedOnView,
+                        rows?.Count ?? 0);
+
+                    printContext.DetailRows = rs;
+
+                    if (rows != null)
+                    {
+                        for (int i = 0; i < rows.Count; i++)
+                        {
+                            object detail = rows[i];
+                            printContext.DetailRow = detail;
+
+                            object rowObj = printContext.Row;
+                            object detailObj = printContext.DetailRow;
+                            object labelObj = printContext.LabelRow;
+
+                            var detailMain = PXResult.UnwrapMain(detailObj);
+                            var rowMain = PXResult.UnwrapMain(rowObj);
+                            var labelMain = PXResult.UnwrapMain(labelObj);
+
+                            // Attempt to find ILabelOption extensions
+                            object detailOpt = null;
+                            object rowOpt = null;
+                            object labelOpt = null;
+
+                            try
+                            {
+                                detailOpt = AsgardUtils.FindExtension<ILabelOption>(detailObj);
+                                if (detailOpt == null && detailMain != null)
+                                {
+                                    detailOpt = AsgardUtils.FindExtension<ILabelOption>(detailMain);
+                                }
+
+                                rowOpt = AsgardUtils.FindExtension<ILabelOption>(rowObj);
+                                if (rowOpt == null && rowMain != null)
+                                {
+                                    rowOpt = AsgardUtils.FindExtension<ILabelOption>(rowMain);
+                                }
+
+                                labelOpt = AsgardUtils.FindExtension<ILabelOption>(labelObj);
+                                if (labelOpt == null && labelMain != null)
+                                {
+                                    labelOpt = AsgardUtils.FindExtension<ILabelOption>(labelMain);
+                                }
+                            }
+                            catch (Exception extEx)
+                            {
+                                PXTrace.WriteInformation("[PROOF] Error finding ILabelOption extensions: {0}", extEx.Message);
+                            }
+
+                            // Get the actual copy count values
+                            int? overrideCopies = null;
+                            int exprCopies = 1;
+                            int finalCopies = 0;
+                            bool doPrintLine = false;
+
+                            try
+                            {
+                                overrideCopies = printContext.GetNbCopiesOverride();
+                                exprCopies = printContext.ScribanContext.EvalExpr(printContext.Model.NbCopiesExpr, 1);
+                                finalCopies = printContext.GetNbCopies();
+                                doPrintLine = NbCopiesHelper.CheckLineDoPrint(printContext);
+                            }
+                            catch (Exception copyEx)
+                            {
+                                PXTrace.WriteInformation("[PROOF] Error evaluating copy count: {0}", copyEx.Message);
+                            }
+
+                            // Extract package line number if possible
+                            SOPackageDetail pkg = null;
+                            try
+                            {
+                                pkg = PXResult.Unwrap<SOPackageDetail>(detailObj);
+                                if (pkg == null && detailMain != null)
+                                {
+                                    pkg = detailMain as SOPackageDetail;
+                                }
+                            }
+                            catch { }
+
+                            PXTrace.WriteInformation(
+                                "[PROOF] RowIndex={0}, PackageLineNbr={1}, DetailType={2}, RowType={3}, LabelType={4}",
+                                i,
+                                pkg?.LineNbr,
+                                detailObj?.GetType().FullName ?? "null",
+                                rowObj?.GetType().FullName ?? "null",
+                                labelObj?.GetType().FullName ?? "null"
+                            );
+
+                            PXTrace.WriteInformation(
+                                "[PROOF] DetailOpt?={0}, RowOpt?={1}, LabelOpt?={2}",
+                                detailOpt != null,
+                                rowOpt != null,
+                                labelOpt != null
+                            );
+
+                            PXTrace.WriteInformation(
+                                "[PROOF] NbCopiesExpr='{0}', Override={1}, ExprResult={2}, FinalCopies={3}, CheckLineDoPrint={4}",
+                                printContext.Model.NbCopiesExpr ?? "null",
+                                overrideCopies?.ToString() ?? "null",
+                                exprCopies,
+                                finalCopies,
+                                doPrintLine
+                            );
+                        }
+                    }
+                }
+            }
+            catch (Exception proofEx)
+            {
+                PXTrace.WriteInformation("[PROOF] ⚠️ Error during copy-count proof: {0}: {1}", 
+                    proofEx.GetType().FullName, proofEx.Message);
+            }
+
+            PXTrace.WriteInformation("[PROOF] === END COPY-COUNT PROOF ===");
 
             // ✅ DIAGNOSTIC: Wrap PrintLabels call to capture what happens
             try
