@@ -498,147 +498,77 @@ namespace AA.Objects.AL.Integration.PerPackage
                 PXTrace.WriteInformation("[SERVICE] === END Print-Gating Logic Pre-Inspection (with error) ===");
             }
 
-            // ✅ CRITICAL DIAGNOSTIC: COPY-COUNT PROOF BLOCK
-            // This proves exactly why NbLabels=0 by inspecting the actual DetailRows and their copy-count resolution
-            PXTrace.WriteInformation("[PROOF] === BEGIN COPY-COUNT PROOF ===");
+            // ✅ DIAGNOSTIC: PRINTER ASSIGNMENT & CHECKLINEDOBPRINT FOCUS
+            // From attached analysis: NbLabels=0 is caused by printer resolution FAIL and/or CheckLineDoPrint=False
+            // Copy-count is proven WORKING (FinalCopies=1 per trace)
+            PXTrace.WriteInformation("[DIAG-PRINTER] === BEGIN PRINTER ASSIGNMENT & LINE-PRINT GATE DIAGNOSTICS ===");
             try
             {
-                object basedOnRows = ViewUtils.ViewSelect(_graph, printContext.Model.BasedOnView);
-                IPXResultset rs = AsgardUtils.GetAsResultset(basedOnRows);
-
-                if (rs == null)
+                PXTrace.WriteInformation("[DIAG-PRINTER] Model Name: {0}", printContext.Model?.Name ?? "null");
+                PXTrace.WriteInformation("[DIAG-PRINTER] PrinterID: {0}", printContext.PrinterID?.ToString() ?? "null");
+                PXTrace.WriteInformation("[DIAG-PRINTER] Printer Name: {0}", printContext.Printer?.Name ?? "null");
+                PXTrace.WriteInformation("[DIAG-PRINTER] Printer Description: {0}", printContext.Printer?.Description ?? "null");
+                
+                if (printContext.Printer == null)
                 {
-                    PXTrace.WriteInformation("[PROOF] ViewSelect result could not be converted to IPXResultset");
+                    PXTrace.WriteInformation("[DIAG-PRINTER] ⚠️ CRITICAL BLOCKER: Printer is NULL");
+                    PXTrace.WriteInformation("[DIAG-PRINTER] This matches trace message: 'Model {0} has no printer for you'", 
+                        printContext.Model?.Name ?? "unknown");
+                    PXTrace.WriteInformation("[DIAG-PRINTER] Likely causes:");
+                    PXTrace.WriteInformation("[DIAG-PRINTER]   1. Printer not configured in model");
+                    PXTrace.WriteInformation("[DIAG-PRINTER]   2. User does not have access to configured printer");
+                    PXTrace.WriteInformation("[DIAG-PRINTER]   3. Printer override rule failed");
                 }
                 else
                 {
-                    IList rows = (IList)rs.GetCollection();
-                    PXTrace.WriteInformation("[PROOF] BasedOnView={0}, RowCount={1}",
-                        printContext.Model.BasedOnView,
-                        rows?.Count ?? 0);
-
-                    printContext.DetailRows = rs;
-
-                    if (rows != null)
-                    {
-                        for (int i = 0; i < rows.Count; i++)
-                        {
-                            object detail = rows[i];
-                            printContext.DetailRow = detail;
-
-                            object rowObj = printContext.Row;
-                            object detailObj = printContext.DetailRow;
-                            object labelObj = printContext.LabelRow;
-
-                            var detailMain = PXResult.UnwrapMain(detailObj);
-                            var rowMain = PXResult.UnwrapMain(rowObj);
-                            var labelMain = PXResult.UnwrapMain(labelObj);
-
-                            // Attempt to find ILabelOption extensions
-                            object detailOpt = null;
-                            object rowOpt = null;
-                            object labelOpt = null;
-
-                            try
-                            {
-                                detailOpt = AsgardUtils.FindExtension<ILabelOption>(detailObj);
-                                if (detailOpt == null && detailMain != null)
-                                {
-                                    detailOpt = AsgardUtils.FindExtension<ILabelOption>(detailMain);
-                                }
-
-                                rowOpt = AsgardUtils.FindExtension<ILabelOption>(rowObj);
-                                if (rowOpt == null && rowMain != null)
-                                {
-                                    rowOpt = AsgardUtils.FindExtension<ILabelOption>(rowMain);
-                                }
-
-                                labelOpt = AsgardUtils.FindExtension<ILabelOption>(labelObj);
-                                if (labelOpt == null && labelMain != null)
-                                {
-                                    labelOpt = AsgardUtils.FindExtension<ILabelOption>(labelMain);
-                                }
-                            }
-                            catch (Exception extEx)
-                            {
-                                PXTrace.WriteInformation("[PROOF] Error finding ILabelOption extensions: {0}", extEx.Message);
-                            }
-
-                            // Get the actual copy count values
-                            int? overrideCopies = null;
-                            int exprCopies = 1;
-                            int finalCopies = 0;
-                            bool doPrintLine = false;
-
-                            try
-                            {
-                                string nbCopiesExpr = printContext.Model?.NbCopiesExpr;
-                                PXTrace.WriteInformation("[PROOF] Raw NbCopiesExpr = '{0}'", nbCopiesExpr ?? "null");
-                                
-                                overrideCopies = printContext.GetNbCopiesOverride();
-                                exprCopies = printContext.ScribanContext.EvalExpr(printContext.Model.NbCopiesExpr, 1);
-                                finalCopies = printContext.GetNbCopies();
-                                doPrintLine = NbCopiesHelper.CheckLineDoPrint(printContext);
-                            }
-                            catch (Exception copyEx)
-                            {
-                                PXTrace.WriteInformation("[PROOF] Error evaluating copy count: {0}", copyEx.Message);
-                            }
-
-                            // Extract package line number if possible
-                            SOPackageDetail pkg = null;
-                            try
-                            {
-                                pkg = PXResult.Unwrap<SOPackageDetail>(detailObj);
-                                if (pkg == null && detailMain != null)
-                                {
-                                    pkg = detailMain as SOPackageDetail;
-                                }
-                            }
-                            catch { }
-
-                            PXTrace.WriteInformation(
-                                "[PROOF] RowIndex={0}, PackageLineNbr={1}, DetailType={2}, RowType={3}, LabelType={4}",
-                                i,
-                                pkg?.LineNbr,
-                                detailObj?.GetType().FullName ?? "null",
-                                rowObj?.GetType().FullName ?? "null",
-                                labelObj?.GetType().FullName ?? "null"
-                            );
-
-                            PXTrace.WriteInformation(
-                                "[PROOF] DetailOpt?={0}, RowOpt?={1}, LabelOpt?={2}",
-                                detailOpt != null,
-                                rowOpt != null,
-                                labelOpt != null
-                            );
-
-                            PXTrace.WriteInformation(
-                                "[PROOF] Detail UsrALNbrOfCopies={0}, Row UsrALNbrOfCopies={1}, Label UsrALPrintLabel={2}",
-                                detailOpt?.UsrALNbrOfCopies?.ToString() ?? "null",
-                                rowOpt?.UsrALNbrOfCopies?.ToString() ?? "null",
-                                labelOpt?.UsrALPrintLabel?.ToString() ?? "null"
-                            );
-
-                            PXTrace.WriteInformation(
-                                "[PROOF] NbCopiesExpr='{0}', Override={1}, ExprResult={2}, FinalCopies={3}, CheckLineDoPrint={4}",
-                                printContext.Model.NbCopiesExpr ?? "null",
-                                overrideCopies?.ToString() ?? "null",
-                                exprCopies,
-                                finalCopies,
-                                doPrintLine
-                            );
-                        }
-                    }
+                    PXTrace.WriteInformation("[DIAG-PRINTER] ✓ Printer resolved: {0}", printContext.Printer.Name);
                 }
+
+                PXTrace.WriteInformation("[DIAG-PRINTER] === END PRINTER ASSIGNMENT & LINE-PRINT GATE DIAGNOSTICS ===");
             }
-            catch (Exception proofEx)
+            catch (Exception printerEx)
             {
-                PXTrace.WriteInformation("[PROOF] ⚠️ Error during copy-count proof: {0}: {1}", 
-                    proofEx.GetType().FullName, proofEx.Message);
+                PXTrace.WriteInformation("[DIAG-PRINTER] ⚠️ Error during printer diagnostics: {0}: {1}", 
+                    printerEx.GetType().FullName, printerEx.Message);
+                PXTrace.WriteInformation("[DIAG-PRINTER] === END PRINTER ASSIGNMENT & LINE-PRINT GATE DIAGNOSTICS (with error) ===");
             }
 
-            PXTrace.WriteInformation("[PROOF] === END COPY-COUNT PROOF ===");
+            // ✅ DIAGNOSTIC: NATIVE CHECKLINEDOBPRINT GATE
+            // This is the second active blocker from the trace analysis
+            PXTrace.WriteInformation("[DIAG-GATE-PRINT] === BEGIN CHECKLINEDOBPRINT GATE DIAGNOSTICS ===");
+            try
+            {
+                // The proof trace showed: CheckLineDoPrint=False
+                // This gate decides whether package qualifies for printing at line level
+                PXTrace.WriteInformation("[DIAG-GATE-PRINT] Invoking native NbCopiesHelper.CheckLineDoPrint() via reflection...");
+                
+                bool checkLinePrintResult = InvokeCheckLineDoPrint(printContext);
+                
+                PXTrace.WriteInformation("[DIAG-GATE-PRINT] CheckLineDoPrint result: {0}", checkLinePrintResult);
+                
+                if (!checkLinePrintResult)
+                {
+                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] ⚠️ LINE-PRINT GATE BLOCKS: CheckLineDoPrint returned FALSE");
+                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] This means: NbCopiesHelper.CheckLineDoPrint(lc) failed");
+                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] Native logic (decompiled):");
+                    PXTrace.WriteInformation("[DIAG-GATE-PRINT]   ILabelOption opt = FindExtension<ILabelOption>(row);");
+                    PXTrace.WriteInformation("[DIAG-GATE-PRINT]   return opt == null || opt.UsrALPrintLabel.GetValueOrDefault();");
+                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] If opt is not null AND UsrALPrintLabel is FALSE, this blocks printing.");
+                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] Investigate package row's UsrALPrintLabel field value.");
+                }
+                else
+                {
+                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] ✓ Line-print gate passes: CheckLineDoPrint returned TRUE");
+                }
+
+                PXTrace.WriteInformation("[DIAG-GATE-PRINT] === END CHECKLINEDOBPRINT GATE DIAGNOSTICS ===");
+            }
+            catch (Exception gateEx)
+            {
+                PXTrace.WriteInformation("[DIAG-GATE-PRINT] ⚠️ Error invoking CheckLineDoPrint: {0}: {1}", 
+                    gateEx.GetType().FullName, gateEx.Message);
+                PXTrace.WriteInformation("[DIAG-GATE-PRINT] === END CHECKLINEDOBPRINT GATE DIAGNOSTICS (with error) ===");
+            }
 
             // ✅ DIAGNOSTIC: Wrap PrintLabels call to capture what happens
             try
@@ -648,8 +578,8 @@ namespace AA.Objects.AL.Integration.PerPackage
                 if (results == null)
                     throw new PXException("PrintLabels returned null.");
 
-                // ✅ DIAGNOSTIC: Analyze print results and copy-count gate analysis
-                PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: Print Results & Copy-Count Analysis ===");
+                // ✅ DIAGNOSTIC: FOCUSED RESULTS ANALYSIS
+                PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: Print Results Analysis ===");
                 int nbLabelsValue = results.NbLabels;
                 PXTrace.WriteInformation("[DIAG-RESULTS] NbLabels: {0}", nbLabelsValue);
                 PXTrace.WriteInformation("[DIAG-RESULTS] PrintResults type: {0}", results.GetType().FullName);
@@ -657,30 +587,21 @@ namespace AA.Objects.AL.Integration.PerPackage
                 if (nbLabelsValue == 0)
                 {
                     PXTrace.WriteInformation("[DIAG-RESULTS] ⚠️ Zero labels generated");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] === COPY-COUNT GATE ANALYSIS ===");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] From BasicLabelGenerator.ParseAndPrint logic:");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] Copy-count check: GetNbCopies() returned VALUE");
-                    PXTrace.WriteInformation("[DIAG-RESULTS]   If GetNbCopies() == 0 → returns EMPTY immediately (zero labels)");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] GetNbCopies() logic chain:");
-                    PXTrace.WriteInformation("[DIAG-RESULTS]   1. Check GetNbCopiesOverride() from ILabelOption.UsrALNbrOfCopies");
-                    PXTrace.WriteInformation("[DIAG-RESULTS]   2. If override > 0 → return override");
-                    PXTrace.WriteInformation("[DIAG-RESULTS]   3. Else evaluate Model.NbCopiesExpr");
-                    PXTrace.WriteInformation("[DIAG-RESULTS]   4. Return the evaluated result (could be 0)");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] === KEY UNKNOWNS ===");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] ❓ What was GetNbCopies() result? (CHECK EARLIER [DIAG-GATE] LOGS)");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] ❓ What is Model.NbCopiesExpr? (CHECK EARLIER [DIAG-GATE] LOGS)");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] ❓ Is there a copy override on the package row?");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] ❓ Does Model.NbCopiesExpr evaluate to 0 at row context?");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] Model FilterRule result: CHECK [DIAG-GATE] if it evaluates FALSE");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] Selected package: LineNbr=1, ShipmentNbr=0015732");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] Document condition (Target): TRUE (confirmed)");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] === LIKELY ACTIVE BLOCKERS ===");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] 1. PRINTER ASSIGNMENT (from [DIAG-PRINTER] logs):");
+                    PXTrace.WriteInformation("[DIAG-RESULTS]    If printContext.Printer == null → printing blocked");
+                    PXTrace.WriteInformation("[DIAG-RESULTS]    Check model printer configuration and user access");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] 2. LINE-PRINT GATE (from [DIAG-GATE-PRINT] logs):");
+                    PXTrace.WriteInformation("[DIAG-RESULTS]    If CheckLineDoPrint() returned FALSE → printing blocked");
+                    PXTrace.WriteInformation("[DIAG-RESULTS]    Check package row UsrALPrintLabel field");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] COPY-COUNT IS NOT THE BLOCKER (proven working from earlier trace)");
                 }
                 else
                 {
                     PXTrace.WriteInformation("[DIAG-RESULTS] ✅ Labels generated: {0}", nbLabelsValue);
                 }
 
-                PXTrace.WriteInformation("[SERVICE] === END Print Results & Copy-Count Analysis ===");
+                PXTrace.WriteInformation("[SERVICE] === END Print Results Analysis ===");
 
                 PXTrace.WriteInformation(
                     $"[SERVICE] Row-selection native print finished: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={nbLabelsValue}");
@@ -718,6 +639,124 @@ namespace AA.Objects.AL.Integration.PerPackage
         {
             throw new PXException(
                 "PrintCheckedPackagesUsingNativeContext is deprecated. Use PrintSelectedPackageUsingNativeContext with a specific package line number instead.");
+        }
+
+        /// <summary>
+        /// Helper method to invoke AsgardUtils.FindExtension<T> via reflection for any type.
+        /// This avoids compile-time type resolution issues.
+        /// </summary>
+        private object TryFindExtension(object row, Type extensionType)
+        {
+            if (row == null || extensionType == null)
+                return null;
+
+            try
+            {
+                // Get all public static methods from AsgardUtils
+                var methods = typeof(AsgardUtils)
+                    .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+
+                // Find the generic FindExtension<T> method that takes one parameter
+                var targetMethod = methods.FirstOrDefault(m =>
+                    m.Name == "FindExtension" &&
+                    m.IsGenericMethodDefinition &&
+                    m.GetParameters().Length == 1);
+
+                if (targetMethod == null)
+                {
+                    PXTrace.WriteInformation("[PROOF] Could not find generic AsgardUtils.FindExtension<T>(row)");
+                    return null;
+                }
+
+                // Create the closed generic method: FindExtension<extensionType>
+                var closedMethod = targetMethod.MakeGenericMethod(extensionType);
+                
+                // Invoke the method with the row as argument
+                return closedMethod.Invoke(null, new[] { row });
+            }
+            catch (Exception ex)
+            {
+                PXTrace.WriteInformation("[PROOF] TryFindExtension error: {0}", ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Helper method to safely access field values on Asgard extension objects using reflection.
+        /// </summary>
+        private string GetFieldValueAsString(object obj, string fieldName)
+        {
+            if (obj == null)
+                return "null";
+
+            try
+            {
+                var property = obj.GetType().GetProperty(fieldName);
+                if (property == null)
+                    return "field_not_found";
+
+                var value = property.GetValue(obj);
+                return value?.ToString() ?? "null";
+            }
+            catch (Exception ex)
+            {
+                return "error_" + ex.GetType().Name;
+            }
+        }
+
+        /// <summary>
+        /// Helper method to invoke NbCopiesHelper.CheckLineDoPrint via reflection.
+        /// Returns TRUE on failure (allow printing) - don't block on reflection errors.
+        /// </summary>
+        private bool InvokeCheckLineDoPrint(object labelContext)
+        {
+            try
+            {
+                // Get NbCopiesHelper type from Asgard assembly
+                Type nbCopiesHelperType = Type.GetType("AA.Objects.AL.NbCopiesHelper, AA.Objects.AL.Basic");
+                if (nbCopiesHelperType == null)
+                {
+                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] ⚠️ NbCopiesHelper type not found via reflection");
+                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] Defaulting to TRUE (allow printing) - native path will decide");
+                    return true;  // ← ALLOW PRINTING ON REFLECTION FAILURE
+                }
+
+                // Get CheckLineDoPrint static method
+                var method = nbCopiesHelperType.GetMethod("CheckLineDoPrint", 
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                
+                if (method == null)
+                {
+                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] ⚠️ CheckLineDoPrint method not found on NbCopiesHelper");
+                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] Defaulting to TRUE (allow printing) - native path will decide");
+                    return true;  // ← ALLOW PRINTING ON REFLECTION FAILURE
+                }
+
+                // Invoke the method
+                object result = method.Invoke(null, new[] { labelContext });
+                bool methodResult = (bool)(result ?? false);
+                
+                PXTrace.WriteInformation("[DIAG-GATE-PRINT] ✓ Native CheckLineDoPrint invoked successfully: {0}", methodResult);
+                return methodResult;
+            }
+            catch (TargetInvocationException tiEx)
+            {
+                // Unwrap the inner exception from reflection invocation
+                PXTrace.WriteInformation("[DIAG-GATE-PRINT] ⚠️ CheckLineDoPrint threw exception during invocation");
+                PXTrace.WriteInformation("[DIAG-GATE-PRINT] Inner exception type: {0}", 
+                    tiEx.InnerException?.GetType().FullName ?? "null");
+                PXTrace.WriteInformation("[DIAG-GATE-PRINT] Inner exception message: {0}", 
+                    tiEx.InnerException?.Message ?? "null");
+                PXTrace.WriteInformation("[DIAG-GATE-PRINT] Defaulting to TRUE (allow printing)");
+                return true;  // ← ALLOW PRINTING ON INVOCATION ERROR
+            }
+            catch (Exception ex)
+            {
+                PXTrace.WriteInformation("[DIAG-GATE-PRINT] ⚠️ Error invoking CheckLineDoPrint: {0}", ex.GetType().FullName);
+                PXTrace.WriteInformation("[DIAG-GATE-PRINT] Exception message: {0}", ex.Message);
+                PXTrace.WriteInformation("[DIAG-GATE-PRINT] Defaulting to TRUE (allow printing) - native path will decide");
+                return true;  // ← ALLOW PRINTING ON REFLECTION ERROR
+            }
         }
     }
 }
