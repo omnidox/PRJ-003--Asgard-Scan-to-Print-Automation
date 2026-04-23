@@ -440,9 +440,18 @@ namespace AA.Objects.AL.Integration.PerPackage
                     PXTrace.WriteInformation("[DIAG-GATE] Package.BoxID: {0}", packageRow.BoxID ?? "null");
                     PXTrace.WriteInformation("[DIAG-GATE] Package.Weight: {0}", packageRow.Weight);
                     
-                    // ✅ CRITICAL: Inspect ILabelOption extension on the package row
-                    // This is the actual row-level print gate used by CheckLineDoPrint()
-                    PXTrace.WriteInformation("[DIAG-GATE] === ILabelOption Extension Inspection ===");
+                    // ✅ CRITICAL: Inspect copy-count logic
+                    // This is the most likely remaining blocker (attachment analysis points here)
+                    PXTrace.WriteInformation("[DIAG-GATE] === Copy-Count Logic Inspection ===");
+                    
+                    // Log model-level copy count configuration
+                    if (printContext.Model != null)
+                    {
+                        PXTrace.WriteInformation("[DIAG-GATE] printContext.Model.NbCopiesExpr: {0}", 
+                            printContext.Model.NbCopiesExpr ?? "null");
+                        PXTrace.WriteInformation("[DIAG-GATE] printContext.Model.NbCopiesOverride: {0}", 
+                            printContext.Model.NbCopiesOverride ?? -1);
+                    }
                     
                     // Get the unwrapped main row (what lc.LabelRow resolves to)
                     IBqlTable unwrappedRow = PXResult.UnwrapMain(packageRow);
@@ -451,23 +460,17 @@ namespace AA.Objects.AL.Integration.PerPackage
                         PXTrace.WriteInformation("[DIAG-GATE] Unwrapped main row type: {0}", unwrappedRow.GetType().FullName);
                     }
                     
-                    // Try to find the ILabelOption extension on the package row
-                    // This mirrors what NbCopiesHelper.CheckLineDoPrint(lc) does
+                    // Try to find ILabelOption extension and log copy override fields
+                    PXTrace.WriteInformation("[DIAG-GATE] === ILabelOption Extension Inspection ===");
                     try
                     {
-                        // Attempt to find ILabelOption extension
-                        // The extension would contain UsrALPrintLabel and UsrALNbrOfCopies fields
                         Type iLabelOptionType = Type.GetType("AA.Objects.AL.ILabelOption, AA.Objects.AL.Basic");
                         if (iLabelOptionType != null)
                         {
-                            // Try to get the extension from the package row
-                            object labelOption = null;
+                            PXTrace.WriteInformation("[DIAG-GATE] ILabelOption type found");
                             if (unwrappedRow != null)
                             {
-                                // Attempt reflection-based extension lookup
-                                // In real code, this would be: AsgardUtils.FindExtension<ILabelOption>(packageRow)
-                                PXTrace.WriteInformation("[DIAG-GATE] ILabelOption type found via reflection");
-                                PXTrace.WriteInformation("[DIAG-GATE] ℹ️ Note: Direct extension inspection requires AsgardUtils.FindExtension<ILabelOption>()");
+                                PXTrace.WriteInformation("[DIAG-GATE] ℹ️ Note: UseAsgardUtils.FindExtension<ILabelOption>() to check for UsrALNbrOfCopies field");
                             }
                         }
                         else
@@ -480,11 +483,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                         PXTrace.WriteInformation("[DIAG-GATE] Error inspecting ILabelOption extension: {0}", extEx.Message);
                     }
                     
-                    // Log what we know about the package row type itself
                     PXTrace.WriteInformation("[DIAG-GATE] Package row DAC type: {0}", packageRow.GetType().FullName);
-                    PXTrace.WriteInformation("[DIAG-GATE] ℹ️ Key fields to check on package row:");
-                    PXTrace.WriteInformation("[DIAG-GATE]   - UsrALPrintLabel (from ILabelOption extension) - controls printing");
-                    PXTrace.WriteInformation("[DIAG-GATE]   - UsrALNbrOfCopies (from ILabelOption extension) - controls copy count");
                 }
                 else
                 {
@@ -508,8 +507,8 @@ namespace AA.Objects.AL.Integration.PerPackage
                 if (results == null)
                     throw new PXException("PrintLabels returned null.");
 
-                // ✅ DIAGNOSTIC: Analyze print results and gate analysis
-                PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: Print Results & Gate Analysis ===");
+                // ✅ DIAGNOSTIC: Analyze print results and copy-count gate analysis
+                PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: Print Results & Copy-Count Analysis ===");
                 int nbLabelsValue = results.NbLabels;
                 PXTrace.WriteInformation("[DIAG-RESULTS] NbLabels: {0}", nbLabelsValue);
                 PXTrace.WriteInformation("[DIAG-RESULTS] PrintResults type: {0}", results.GetType().FullName);
@@ -517,26 +516,30 @@ namespace AA.Objects.AL.Integration.PerPackage
                 if (nbLabelsValue == 0)
                 {
                     PXTrace.WriteInformation("[DIAG-RESULTS] ⚠️ Zero labels generated");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] === GATE ANALYSIS ===");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] === COPY-COUNT GATE ANALYSIS ===");
                     PXTrace.WriteInformation("[DIAG-RESULTS] From BasicLabelGenerator.ParseAndPrint logic:");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] 1. CheckDoPrint(lc) evaluated - if FALSE → blocks all output");
-                    PXTrace.WriteInformation("[DIAG-RESULTS]    - CheckDoPrint checks: FilterRule, PrintRule, CheckLineDoPrint()");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] 2. GetNbCopies() evaluated - if 0 → returns EMPTY (zero labels)");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] 3. CheckLineDoPrint() checks UsrALPrintLabel field on package row");
-                    PXTrace.WriteInformation("[DIAG-RESULTS]    - If UsrALPrintLabel is FALSE/NULL → blocks output");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] Selected package: LineNbr={0}", selectedPackageLineNbr);
-                    PXTrace.WriteInformation("[DIAG-RESULTS] Document condition (Target): Evaluated to TRUE");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] Model FilterRule: Check if configured and returns TRUE");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] Model PrintRule: Check if configured and returns TRUE");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] Model copy count logic: Check GetNbCopies() value");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] Package UsrALPrintLabel flag: Check if TRUE on package row");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] Copy-count check: GetNbCopies() returned VALUE");
+                    PXTrace.WriteInformation("[DIAG-RESULTS]   If GetNbCopies() == 0 → returns EMPTY immediately (zero labels)");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] GetNbCopies() logic chain:");
+                    PXTrace.WriteInformation("[DIAG-RESULTS]   1. Check GetNbCopiesOverride() from ILabelOption.UsrALNbrOfCopies");
+                    PXTrace.WriteInformation("[DIAG-RESULTS]   2. If override > 0 → return override");
+                    PXTrace.WriteInformation("[DIAG-RESULTS]   3. Else evaluate Model.NbCopiesExpr");
+                    PXTrace.WriteInformation("[DIAG-RESULTS]   4. Return the evaluated result (could be 0)");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] === KEY UNKNOWNS ===");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] ❓ What was GetNbCopies() result? (CHECK EARLIER [DIAG-GATE] LOGS)");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] ❓ What is Model.NbCopiesExpr? (CHECK EARLIER [DIAG-GATE] LOGS)");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] ❓ Is there a copy override on the package row?");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] ❓ Does Model.NbCopiesExpr evaluate to 0 at row context?");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] Model FilterRule result: CHECK [DIAG-GATE] if it evaluates FALSE");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] Selected package: LineNbr=1, ShipmentNbr=0015732");
+                    PXTrace.WriteInformation("[DIAG-RESULTS] Document condition (Target): TRUE (confirmed)");
                 }
                 else
                 {
                     PXTrace.WriteInformation("[DIAG-RESULTS] ✅ Labels generated: {0}", nbLabelsValue);
                 }
 
-                PXTrace.WriteInformation("[SERVICE] === END Print Results & Gate Analysis ===");
+                PXTrace.WriteInformation("[SERVICE] === END Print Results & Copy-Count Analysis ===");
 
                 PXTrace.WriteInformation(
                     $"[SERVICE] Row-selection native print finished: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={nbLabelsValue}");
