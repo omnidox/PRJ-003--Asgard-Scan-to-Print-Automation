@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using PX.Data;
@@ -571,6 +572,9 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                             try
                             {
+                                string nbCopiesExpr = printContext.Model?.NbCopiesExpr;
+                                PXTrace.WriteInformation("[PROOF] Raw NbCopiesExpr = '{0}'", nbCopiesExpr ?? "null");
+                                
                                 overrideCopies = printContext.GetNbCopiesOverride();
                                 exprCopies = printContext.ScribanContext.EvalExpr(printContext.Model.NbCopiesExpr, 1);
                                 finalCopies = printContext.GetNbCopies();
@@ -607,6 +611,13 @@ namespace AA.Objects.AL.Integration.PerPackage
                                 detailOpt != null,
                                 rowOpt != null,
                                 labelOpt != null
+                            );
+
+                            PXTrace.WriteInformation(
+                                "[PROOF] Detail UsrALNbrOfCopies={0}, Row UsrALNbrOfCopies={1}, Label UsrALPrintLabel={2}",
+                                detailOpt?.UsrALNbrOfCopies?.ToString() ?? "null",
+                                rowOpt?.UsrALNbrOfCopies?.ToString() ?? "null",
+                                labelOpt?.UsrALPrintLabel?.ToString() ?? "null"
                             );
 
                             PXTrace.WriteInformation(
