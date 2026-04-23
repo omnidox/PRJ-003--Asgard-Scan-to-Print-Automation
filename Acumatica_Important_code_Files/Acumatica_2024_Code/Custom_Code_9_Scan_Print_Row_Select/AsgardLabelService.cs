@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using PX.Data;
 using PX.Objects.SO;
 
@@ -505,7 +506,6 @@ namespace AA.Objects.AL.Integration.PerPackage
             try
             {
                 PXTrace.WriteInformation("[DIAG-PRINTER] Model Name: {0}", printContext.Model?.Name ?? "null");
-                PXTrace.WriteInformation("[DIAG-PRINTER] PrinterID: {0}", printContext.PrinterID?.ToString() ?? "null");
                 PXTrace.WriteInformation("[DIAG-PRINTER] Printer Name: {0}", printContext.Printer?.Name ?? "null");
                 PXTrace.WriteInformation("[DIAG-PRINTER] Printer Description: {0}", printContext.Printer?.Description ?? "null");
                 

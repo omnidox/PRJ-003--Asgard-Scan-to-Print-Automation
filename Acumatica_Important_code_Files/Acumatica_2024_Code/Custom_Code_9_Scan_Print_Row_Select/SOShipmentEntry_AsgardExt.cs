@@ -119,6 +119,32 @@ namespace AA.Objects.AL.Integration.PerPackage
                 graph.Packages.Current = selectedPackage;
                 PXTrace.WriteInformation("[LONGOP] Packages.Current set to line {0}", packageLineNbr);
 
+                // ✅ PROOF TEST: Set UsrALPrintLabel on the selected package before printing
+                // This tests the hypothesis that row-selection fails because it doesn't establish
+                // the same native print-flag state that the checkbox version relies on.
+                // If this fixes NbLabels=0, the hypothesis is strongly supported.
+                PXTrace.WriteInformation("[PROOF-TEST] === BEGIN USRALPRINTLABEL PROOF TEST ===");
+                try
+                {
+                    PXTrace.WriteInformation("[PROOF-TEST] Setting UsrALPrintLabel = true on package line {0}", packageLineNbr);
+                    
+                    // Set the print flag to true in cache
+                    graph.Packages.Cache.SetValue(selectedPackage, "UsrALPrintLabel", true);
+                    graph.Packages.Cache.Update(selectedPackage);
+                    
+                    // Save the change to establish the native state
+                    graph.Actions.PressSave();
+                    
+                    PXTrace.WriteInformation("[PROOF-TEST] UsrALPrintLabel set and saved on package line {0}", packageLineNbr);
+                    PXTrace.WriteInformation("[PROOF-TEST] Package now has the same print-eligible state the checkbox version establishes");
+                }
+                catch (Exception proofEx)
+                {
+                    PXTrace.WriteInformation("[PROOF-TEST] ⚠️ Error setting UsrALPrintLabel: {0}", proofEx.Message);
+                    PXTrace.WriteInformation("[PROOF-TEST] Proceeding anyway - will show if this was the blocker");
+                }
+                PXTrace.WriteInformation("[PROOF-TEST] === END USRALPRINTLABEL PROOF TEST ===");
+
                 // ✅ CRITICAL: Activate scope FIRST, THEN load the view so filter sees active scope
                 using (ALPackagesFilterScope.Activate(shipmentNbr, new int?[] { packageLineNbr }))
                 {
@@ -128,7 +154,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     var alPackagesData = graph.Views["ALPackages"].SelectMultiBound(new object[] { shipmentInLongOp });
                     PXTrace.WriteInformation("[LONGOP] ALPackages view loaded with {0} packages", alPackagesData.Count());
 
-                    // Call service with scope active AND Packages.Current set
+                    // Call service with scope active AND Packages.Current set AND UsrALPrintLabel = true
                     PrintResults results = asgardService.PrintSelectedPackageUsingNativeContext(
                         shipmentInLongOp,
                         modelId,
