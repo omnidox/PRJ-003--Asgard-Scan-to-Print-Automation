@@ -119,59 +119,118 @@ namespace AA.Objects.AL.Integration.PerPackage
                 graph.Packages.Current = selectedPackage;
                 PXTrace.WriteInformation("[LONGOP] Packages.Current set to line {0}", packageLineNbr);
 
-                // ✅ PROOF TEST: Set UsrALPrintLabel on the selected package before printing
-                // This tests the hypothesis that row-selection fails because it doesn't establish
-                // the same native print-flag state that the checkbox version relies on.
-                // If this fixes NbLabels=0, the hypothesis is strongly supported.
-                PXTrace.WriteInformation("[PROOF-TEST] === BEGIN USRALPRINTLABEL PROOF TEST ===");
+                // ✅ STATELESS ROW-ONLY BEHAVIOR: Clear all → Set selected → Print → Clear selected
+                // Uses a flag-tracking pattern with try/finally to ensure cleanup runs whether print succeeds or fails
+                bool selectedFlagWasSet = false;
+
                 try
                 {
-                    PXTrace.WriteInformation("[PROOF-TEST] Setting UsrALPrintLabel = true on package line {0}", packageLineNbr);
+                    // ✅ STEP 1-2: Clear all flags, then set ONLY selected flag, save once
+                    // Previously flagged rows persist in native state and remain print-eligible,
+                    // so we must explicitly clear all flags first.
+                    PXTrace.WriteInformation("[ROW-ONLY] STEP 1: Clearing UsrALPrintLabel on all packages for shipment {0}", shipmentNbr);
                     
-                    // Set the print flag to true in cache
+                    foreach (SOPackageDetailEx pkg in PXSelect<
+                        SOPackageDetailEx,
+                        Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
+                        .Select(graph, shipmentNbr))
+                    {
+                        if (pkg != null)
+                        {
+                            graph.Packages.Cache.SetValue(pkg, "UsrALPrintLabel", false);
+                            graph.Packages.Cache.Update(pkg);
+                        }
+                    }
+                    
+                    PXTrace.WriteInformation("[ROW-ONLY] STEP 2: Setting UsrALPrintLabel = true only on selected package line {0}", packageLineNbr);
+                    
                     graph.Packages.Cache.SetValue(selectedPackage, "UsrALPrintLabel", true);
                     graph.Packages.Cache.Update(selectedPackage);
                     
-                    // Save the change to establish the native state
+                    // Single save: transition from "all false" to "only selected true"
                     graph.Actions.PressSave();
+                    selectedFlagWasSet = true;
                     
-                    PXTrace.WriteInformation("[PROOF-TEST] UsrALPrintLabel set and saved on package line {0}", packageLineNbr);
-                    PXTrace.WriteInformation("[PROOF-TEST] Package now has the same print-eligible state the checkbox version establishes");
-                }
-                catch (Exception proofEx)
-                {
-                    PXTrace.WriteInformation("[PROOF-TEST] ⚠️ Error setting UsrALPrintLabel: {0}", proofEx.Message);
-                    PXTrace.WriteInformation("[PROOF-TEST] Proceeding anyway - will show if this was the blocker");
-                }
-                PXTrace.WriteInformation("[PROOF-TEST] === END USRALPRINTLABEL PROOF TEST ===");
-
-                // ✅ CRITICAL: Activate scope FIRST, THEN load the view so filter sees active scope
-                using (ALPackagesFilterScope.Activate(shipmentNbr, new int?[] { packageLineNbr }))
-                {
-                    PXTrace.WriteInformation("[LONGOP] Filter scope activated for shipment {0}, package {1}", shipmentNbr, packageLineNbr);
-
-                    // ✅ NOW load the ALPackages view with scope active - filter will see it!
-                    var alPackagesData = graph.Views["ALPackages"].SelectMultiBound(new object[] { shipmentInLongOp });
-                    PXTrace.WriteInformation("[LONGOP] ALPackages view loaded with {0} packages", alPackagesData.Count());
-
-                    // Call service with scope active AND Packages.Current set AND UsrALPrintLabel = true
-                    PrintResults results = asgardService.PrintSelectedPackageUsingNativeContext(
-                        shipmentInLongOp,
-                        modelId,
-                        packageLineNbr,
-                        null);
-
-                    if (results == null)
-                        throw new PXException("Label printing returned no results.");
-
-                    if (results.NbLabels <= 0)
+                    PXTrace.WriteInformation("[ROW-ONLY] All flags updated: only package {0} marked for printing", packageLineNbr);
+                    
+                    // ✅ Re-query selected package after save to avoid stale cache
+                    selectedPackage = PXSelect<
+                        SOPackageDetailEx,
+                        Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
+                        And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
+                        .Select(graph, shipmentNbr, packageLineNbr).FirstOrDefault();
+                    
+                    if (selectedPackage != null)
                     {
-                        throw new PXException(
-                            "No labels were generated. Please verify the selected package is valid and the selected label model is configured correctly.");
+                        graph.Packages.Current = selectedPackage;
+                        PXTrace.WriteInformation("[ROW-ONLY] Selected package reloaded after save");
                     }
 
-                    PXTrace.WriteInformation(
-                        $"Successfully printed {results.NbLabels} label(s) using row-selection print for shipment {shipmentInLongOp.ShipmentNbr}, package line {packageLineNbr}.");
+                    // ✅ Activate scope to bias native Asgard processing toward only the selected package
+                    // This combines the filter scope with the temporary print flag for safer multi-layered control.
+                    using (ALPackagesFilterScope.Activate(shipmentNbr, new int?[] { packageLineNbr }))
+                    {
+                        PXTrace.WriteInformation("[LONGOP] Filter scope activated for shipment {0}, package {1}", shipmentNbr, packageLineNbr);
+
+                        // ✅ Load the ALPackages view with scope active to ensure filter state is visible
+                        var alPackagesData = graph.Views["ALPackages"].SelectMultiBound(new object[] { shipmentInLongOp });
+                        PXTrace.WriteInformation("[LONGOP] ALPackages view loaded with {0} packages", alPackagesData.Count());
+
+                        // ✅ STEP 3: Call native print service
+                        // This runs while selectedFlagWasSet=true, scope is active, and only selected package has flag=true
+                        PrintResults results = asgardService.PrintSelectedPackageUsingNativeContext(
+                            shipmentInLongOp,
+                            modelId,
+                            packageLineNbr,
+                            null);
+
+                        if (results == null)
+                            throw new PXException("Label printing returned no results.");
+
+                        if (results.NbLabels <= 0)
+                        {
+                            throw new PXException(
+                                "No labels were generated. Please verify the selected package is valid and the selected label model is configured correctly.");
+                        }
+
+                        PXTrace.WriteInformation(
+                            $"[ROW-ONLY] STEP 3 COMPLETE: Successfully printed {results.NbLabels} label(s) for package line {packageLineNbr}");
+                    }
+                }
+                finally
+                {
+                    // ✅ STEP 4: Always cleanup the selected package flag (runs whether print succeeds or fails)
+                    // This ensures the checkbox is truly a temporary control, not persistent state.
+                    // The finally block guarantees cleanup even if PrintLabels throws an exception.
+                    if (selectedFlagWasSet)
+                    {
+                        PXTrace.WriteInformation("[ROW-ONLY] STEP 4: Clearing UsrALPrintLabel on selected package (finally block)");
+                        
+                        try
+                        {
+                            SOPackageDetailEx selectedAfterPrint = PXSelect<
+                                SOPackageDetailEx,
+                                Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
+                                And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
+                                .Select(graph, shipmentNbr, packageLineNbr).FirstOrDefault();
+
+                            if (selectedAfterPrint != null)
+                            {
+                                graph.Packages.Cache.SetValue(selectedAfterPrint, "UsrALPrintLabel", false);
+                                graph.Packages.Cache.Update(selectedAfterPrint);
+                                graph.Actions.PressSave();
+                                
+                                PXTrace.WriteInformation("[ROW-ONLY] Cleanup complete: package {0} flag cleared from database", packageLineNbr);
+                                PXTrace.WriteInformation("[ROW-ONLY] === STATELESS ROW-ONLY BEHAVIOR COMPLETE ===");
+                            }
+                        }
+                        catch (Exception cleanupEx)
+                        {
+                            PXTrace.WriteInformation("[ROW-ONLY] ⚠️ CRITICAL: Cleanup failed: {0}", cleanupEx.Message);
+                            PXTrace.WriteInformation("[ROW-ONLY] ⚠️ Package {0} flag may remain checked in database", packageLineNbr);
+                            // Don't re-throw in finally to preserve original exception context if printing failed
+                        }
+                    }
                 }
             });
         }
