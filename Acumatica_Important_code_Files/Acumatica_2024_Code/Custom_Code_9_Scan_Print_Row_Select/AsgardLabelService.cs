@@ -167,6 +167,15 @@ namespace AA.Objects.AL.Integration.PerPackage
             // This is essential because CreatePrintContext uses the current package row for the label
             PXTrace.WriteInformation("[SERVICE] Setting Packages.Current to line {0} before CreatePrintContext", selectedPackageLineNbr);
             _graph.Packages.Current = packageToVerify;
+            
+            // ✅ CRITICAL: Force the view to acknowledge the new current row
+            // Without this, the cache may still point to the old row when CreatePrintContext reads it
+            PXView packagesView = _graph.Views["Packages"];
+            if (packagesView != null)
+            {
+                packagesView.SetCurrentRow(packageToVerify);
+                PXTrace.WriteInformation("[SERVICE] Packages view current row explicitly set to line {0}", selectedPackageLineNbr);
+            }
 
             // ✅ CRITICAL: Assume filter scope is already activated by the caller (SOShipmentEntry_AsgardExt)
             // This allows the scope to remain active across the fresh graph context
