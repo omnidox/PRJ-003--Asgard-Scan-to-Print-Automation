@@ -160,26 +160,79 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation(
                 $"[SERVICE] Package {selectedPackageLineNbr} verified. Graph type: {_graph.GetType().FullName}");
 
+            // ✅ [PKG PRINT] Diagnostics: Log selected package state BEFORE CreatePrintContext
+            PXTrace.WriteInformation("[PKG PRINT] Shipment={0}", shipment.ShipmentNbr);
+            PXTrace.WriteInformation("[PKG PRINT] Selected LineNbr={0}", selectedPackageLineNbr);
+            
+            // Get UCC128 via reflection
+            object selectedUcc128 = null;
+            try
+            {
+                selectedUcc128 = packageToVerify.GetType().GetProperty("UsrTCUCC128")?.GetValue(packageToVerify);
+            }
+            catch { }
+            PXTrace.WriteInformation("[PKG PRINT] Selected UsrTCUCC128={0}", selectedUcc128 ?? "null");
+
             PXTrace.WriteInformation(
                 $"[SERVICE] Row-selection native print: shipment {shipment.ShipmentNbr} will print package line {selectedPackageLineNbr}");
 
-            // ✅ CRITICAL: Reload the Packages view to ensure clean cache state
-            // This forces Acumatica to re-fetch package data from the database
-            _graph.Views["Packages"].RequestRefresh();
-            PXTrace.WriteInformation("[SERVICE] Packages view refresh requested");
-            
-            // ✅ CRITICAL: Set Packages.Current inside the service to ensure correct context
-            // This is essential because CreatePrintContext uses the current package row for the label
-            PXTrace.WriteInformation("[SERVICE] Setting Packages.Current to line {0} before CreatePrintContext", selectedPackageLineNbr);
-            _graph.Packages.Current = packageToVerify;
-            
-            // ✅ CRITICAL: Clear and reload the cache to force it to see the new current row
-            // Re-fetch the row from cache to ensure CreatePrintContext sees the right data
-            PXLongOperation.ClearErrorInfo();
-            packageToVerify = _graph.Packages.Cache.Locate(packageToVerify);
-            _graph.Packages.Current = packageToVerify;
-            
-            PXTrace.WriteInformation("[SERVICE] Packages cache reloaded and current row confirmed for line {0}", selectedPackageLineNbr);
+            // ✅ CRITICAL: Ensure the selected package has UsrALPrintLabel = true in THIS graph
+            // Asgard's CheckLineDoPrint() checks the extension flag on the row being printed
+            // So we must ensure the correct row in the correct graph has the flag set
+            PXTrace.WriteInformation("[SERVICE] === Setting UsrALPrintLabel via cache extension ===");
+            try
+            {
+                foreach (SOPackageDetailEx pkg in PXSelect<
+                    SOPackageDetailEx,
+                    Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
+                    .Select(_graph, shipment.ShipmentNbr))
+                {
+                    if (pkg != null)
+                    {
+                        bool shouldPrint = pkg.LineNbr == selectedPackageLineNbr;
+                        
+                        // Try to use cache extension directly if available
+                        try
+                        {
+                            object ext = TryFindExtension(pkg, Type.GetType("AA.Objects.AL.ILabelOption, AA.Objects.AL.Basic"));
+                            if (ext != null)
+                            {
+                                // Set via extension property
+                                ext.GetType().GetProperty("UsrALPrintLabel")?.SetValue(ext, shouldPrint);
+                                _graph.Packages.Cache.Update(pkg);
+                                PXTrace.WriteInformation("[SERVICE] Set UsrALPrintLabel={0} on package line {1}", shouldPrint, pkg.LineNbr);
+                            }
+                        }
+                        catch (Exception setEx)
+                        {
+                            PXTrace.WriteInformation("[SERVICE] ⚠️ Error setting UsrALPrintLabel on line {0}: {1}", pkg.LineNbr, setEx.Message);
+                        }
+                    }
+                }
+                
+                _graph.Actions.PressSave();
+                PXTrace.WriteInformation("[SERVICE] UsrALPrintLabel state saved for all packages");
+            }
+            catch (Exception extSetEx)
+            {
+                PXTrace.WriteInformation("[SERVICE] ⚠️ Error setting extension flags: {0}", extSetEx.Message);
+            }
+            PXTrace.WriteInformation("[SERVICE] === END Setting UsrALPrintLabel ===");
+
+            // ✅ Reload the selected package after setting flags
+            packageToVerify = PXSelect<
+                SOPackageDetailEx,
+                Where<
+                    SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
+                    And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
+                .Select(_graph, shipment.ShipmentNbr, selectedPackageLineNbr);
+
+            if (packageToVerify == null)
+            {
+                throw new PXException($"Package line {selectedPackageLineNbr} not found after flag update.");
+            }
+
+            PXTrace.WriteInformation("[SERVICE] Selected package reloaded after flag update");
 
             // ✅ CRITICAL: Assume filter scope is already activated by the caller (SOShipmentEntry_AsgardExt)
             // This allows the scope to remain active across the fresh graph context
@@ -201,7 +254,60 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation("[SERVICE] CreatePrintContext succeeded. Context Model={0}, Printer={1}", 
                 modelName, printerName);
 
-            printContext.IsSilent = true;
+            // ✅ CRITICAL FIX: Get the correct PXResult row from Asgard's ALPackages view
+            // This is the architectural solution: use ViewUtils to get the row in the correct shape
+            PXTrace.WriteInformation("[SERVICE] === CRITICAL FIX: Fetching Asgard row from ALPackages ===");
+            
+            object selectedAsgardRow = null;
+            string basedOnViewName = printContext.Model?.BasedOnView ?? "ALPackages";
+            
+            try
+            {
+                // Fetch all rows from Asgard's ALPackages view
+                object viewSelectResult = ViewUtils.ViewSelect(_graph, basedOnViewName);
+                
+                foreach (object row in (System.Collections.IEnumerable)viewSelectResult)
+                {
+                    SOPackageDetail pkg = PXResult.Unwrap<SOPackageDetail>(row);
+                    
+                    if (pkg != null && pkg.LineNbr == selectedPackageLineNbr)
+                    {
+                        selectedAsgardRow = row;
+                        
+                        // ✅ [ROW-MATCH] Diagnostics: Log immediately after match while row is in scope
+                        var matchedPkg = PXResult.Unwrap<SOPackageDetail>(selectedAsgardRow);
+                        PXTrace.WriteInformation("[ROW-MATCH] === Verifying Asgard Row Match ===");
+                        PXTrace.WriteInformation("[ROW-MATCH] Selected LineNbr={0}", selectedPackageLineNbr);
+                        PXTrace.WriteInformation("[ROW-MATCH] Asgard row type: {0}", selectedAsgardRow.GetType().FullName);
+                        PXTrace.WriteInformation("[ROW-MATCH] Is PXResult: {0}", selectedAsgardRow is PXResult);
+                        PXTrace.WriteInformation("[ROW-MATCH] Bound LineNbr: {0}", matchedPkg?.LineNbr);
+                        PXTrace.WriteInformation("[ROW-MATCH] ✅ MATCH: Selected PXResult row found");
+                        PXTrace.WriteInformation("[ROW-MATCH] === End Verification ===");
+                        
+                        break;
+                    }
+                }
+                
+                if (selectedAsgardRow == null)
+                {
+                    throw new PXException(
+                        $"Could not find package line {selectedPackageLineNbr} in {basedOnViewName}.");
+                }
+                
+                // ✅ Assign the actual PXResult row directly (not wrapped)
+                // Asgard expects the row type itself, not a container
+                printContext.SingleRow = selectedAsgardRow;
+                printContext.IsSilent = true;
+                
+                PXTrace.WriteInformation("[SERVICE] ✓ Selected PXResult row assigned directly to printContext.SingleRow");
+            }
+            catch (Exception asgardRowEx)
+            {
+                PXTrace.WriteInformation("[SERVICE] ⚠️ Error fetching Asgard row: {0}", asgardRowEx.Message);
+                throw;
+            }
+            
+            PXTrace.WriteInformation("[SERVICE] === END CRITICAL FIX ===");
 
             if (printContext.Model == null)
                 throw new PXException("printContext.Model is null.");
@@ -217,118 +323,6 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             PXTrace.WriteInformation(
                 $"[SERVICE] Row-selection native print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
-
-            // ✅ CRITICAL PROOF: Verify checkbox state BEFORE printing
-            // This proves whether the flag logic is correct before we check row binding
-            PXTrace.WriteInformation("[PROOF-CHECKBOX] === BEGIN: Package Flag State Before Print ===");
-            try
-            {
-                PXTrace.WriteInformation("[PROOF-CHECKBOX] Inspecting all packages for shipment {0}", shipment.ShipmentNbr);
-                
-                foreach (SOPackageDetailEx pkg in PXSelect<
-                    SOPackageDetailEx,
-                    Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
-                    .Select(_graph, shipment.ShipmentNbr))
-                {
-                    if (pkg != null)
-                    {
-                        object flagValue = _graph.Packages.Cache.GetValue(pkg, "UsrALPrintLabel");
-                        bool isFlagSet = flagValue is bool b && b;
-                        
-                        PXTrace.WriteInformation("[PROOF-CHECKBOX] LineNbr={0}: UsrALPrintLabel={1}", 
-                            pkg.LineNbr, isFlagSet);
-                        
-                        if (pkg.LineNbr == selectedPackageLineNbr && isFlagSet)
-                        {
-                            PXTrace.WriteInformation("[PROOF-CHECKBOX] ✓ Selected package {0} flag is TRUE (correct)", selectedPackageLineNbr);
-                        }
-                        else if (pkg.LineNbr != selectedPackageLineNbr && isFlagSet)
-                        {
-                            PXTrace.WriteInformation("[PROOF-CHECKBOX] ⚠️ UNEXPECTED: Non-selected package {0} flag is also TRUE", pkg.LineNbr);
-                        }
-                        else if (pkg.LineNbr != selectedPackageLineNbr && !isFlagSet)
-                        {
-                            PXTrace.WriteInformation("[PROOF-CHECKBOX] ✓ Non-selected package {0} flag is FALSE (correct)", pkg.LineNbr);
-                        }
-                    }
-                }
-                
-                PXTrace.WriteInformation("[PROOF-CHECKBOX] === END: Package Flag State Before Print ===");
-            }
-            catch (Exception flagProofEx)
-            {
-                PXTrace.WriteInformation("[PROOF-CHECKBOX] ⚠️ Error during flag state proof: {0}", flagProofEx.Message);
-            }
-
-            // ✅ CRITICAL PROOF: What row is the label context actually bound to?
-            PXTrace.WriteInformation("[PROOF-ROW-BINDING] === BEGIN: Actual Context Row Binding ===");
-            try
-            {
-                PXTrace.WriteInformation("[PROOF-ROW-BINDING] printContext.Row type: {0}", 
-                    printContext.Row?.GetType().FullName ?? "null");
-                PXTrace.WriteInformation("[PROOF-ROW-BINDING] printContext.DetailRow type: {0}", 
-                    printContext.DetailRow?.GetType().FullName ?? "null");
-                PXTrace.WriteInformation("[PROOF-ROW-BINDING] printContext.LabelRow type: {0}", 
-                    printContext.LabelRow?.GetType().FullName ?? "null");
-
-                // Extract the actual barcode from each row object if possible
-                if (printContext.LabelRow != null)
-                {
-                    try
-                    {
-                        SOPackageDetail pkgFromLabel = PXResult.Unwrap<SOPackageDetail>(printContext.LabelRow);
-                        if (pkgFromLabel == null) pkgFromLabel = printContext.LabelRow as SOPackageDetail;
-                        
-                        if (pkgFromLabel != null)
-                        {
-                            PXTrace.WriteInformation("[PROOF-ROW-BINDING] LabelRow unwraps to: LineNbr={0}, UsrTCUCC128={1}", 
-                                pkgFromLabel.LineNbr ?? -999, pkgFromLabel.UsrTCUCC128 ?? "null");
-                            PXTrace.WriteInformation("[PROOF-ROW-BINDING] ✓ Expected: LineNbr={0}, UsrTCUCC128=00007168380000005253", 
-                                selectedPackageLineNbr);
-                            
-                            if (pkgFromLabel.LineNbr.HasValue && pkgFromLabel.LineNbr.Value == selectedPackageLineNbr)
-                            {
-                                PXTrace.WriteInformation("[PROOF-ROW-BINDING] ✅ MATCH: LabelRow is correctly bound to selected package");
-                            }
-                            else
-                            {
-                                PXTrace.WriteInformation("[PROOF-ROW-BINDING] ❌ MISMATCH: LabelRow is bound to WRONG package (LineNbr={0} instead of {1})", 
-                                    pkgFromLabel.LineNbr, selectedPackageLineNbr);
-                            }
-                        }
-                        else
-                        {
-                            PXTrace.WriteInformation("[PROOF-ROW-BINDING] LabelRow could not be unwrapped to SOPackageDetail");
-                            
-                            // Try DetailRow
-                            if (printContext.DetailRow != null)
-                            {
-                                SOPackageDetail pkgFromDetail = PXResult.Unwrap<SOPackageDetail>(printContext.DetailRow);
-                                if (pkgFromDetail == null) pkgFromDetail = printContext.DetailRow as SOPackageDetail;
-                                
-                                if (pkgFromDetail != null)
-                                {
-                                    PXTrace.WriteInformation("[PROOF-ROW-BINDING] DetailRow unwraps to: LineNbr={0}, UsrTCUCC128={1}", 
-                                        pkgFromDetail.LineNbr ?? -999, pkgFromDetail.UsrTCUCC128 ?? "null");
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception unwrapEx)
-                    {
-                        PXTrace.WriteInformation("[PROOF-ROW-BINDING] Error unwrapping LabelRow: {0}", unwrapEx.Message);
-                    }
-                }
-                else
-                {
-                    PXTrace.WriteInformation("[PROOF-ROW-BINDING] LabelRow is NULL - template will use Row or DetailRow");
-                }
-            }
-            catch (Exception proofEx)
-            {
-                PXTrace.WriteInformation("[PROOF-ROW-BINDING] ⚠️ Error during row binding proof: {0}", proofEx.Message);
-            }
-            PXTrace.WriteInformation("[PROOF-ROW-BINDING] === END: Actual Context Row Binding ===");
 
             // ✅ DIAGNOSTIC: Instrument the native ViewDef → ViewResult → ViewSelect path
             // This is what BasicLabelGenerator uses when SingleRow is null
@@ -510,21 +504,14 @@ namespace AA.Objects.AL.Integration.PerPackage
                 PXTrace.WriteInformation("[SERVICE] === END Native ALPackages Path Resolution (with error) ===");
             }
 
-            // ✅ DIAGNOSTIC: Leave SingleRow null to test the native ALPackages path
-            // The native path is: BasicLabelGenerator → GetViewDefinition → GetViewRow → ViewSelect
-            PXTrace.WriteInformation("[SERVICE] === SingleRow Diagnostic Path ===");
-            PXTrace.WriteInformation("[SERVICE] SingleRow is being LEFT NULL to test native ALPackages path");
-            PXTrace.WriteInformation("[SERVICE] BasicLabelGenerator will use ViewDef/ViewResult/ViewSelect instead");
-            PXTrace.WriteInformation("[SERVICE] === END SingleRow Diagnostic Path ===");
-
             // ✅ DIAGNOSTIC: Inspect print eligibility before calling PrintLabels
             // Focus on: Factual state only, no speculation
             PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: Print Eligibility Pre-Inspection ===");
             try
             {
                 // Log factual state before PrintLabels
-                PXTrace.WriteInformation("[DIAG-ELIGIBILITY] printContext.SingleRow is NULL: {0}", 
-                    printContext.SingleRow == null);
+                PXTrace.WriteInformation("[DIAG-ELIGIBILITY] printContext.SingleRow is set to: {0}", 
+                    printContext.SingleRow?.GetType().FullName ?? "null");
                 PXTrace.WriteInformation("[DIAG-ELIGIBILITY] ALPackagesFilterScope.IsActive: {0}", 
                     ALPackagesFilterScope.IsActive);
                 string modelBasedOnView = printContext.Model != null ? printContext.Model.BasedOnView : "null";
@@ -632,7 +619,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             // ✅ DIAGNOSTIC: PRINTER ASSIGNMENT & CHECKLINEDOBPRINT FOCUS
             // From attached analysis: NbLabels=0 is caused by printer resolution FAIL and/or CheckLineDoPrint=False
             // Copy-count is proven WORKING (FinalCopies=1 per trace)
-            PXTrace.WriteInformation("[DIAG-PRINTER] === BEGIN PRINTER ASSIGNMENT & LINE-PRINT GATE DIAGNOSTICS ===");
+            PXTrace.WriteInformation("[DIAG-PRINTER] === BEGIN PRINTER ASSIGNMENT DIAGNOSTICS ===");
             try
             {
                 PXTrace.WriteInformation("[DIAG-PRINTER] Model Name: {0}", printContext.Model?.Name ?? "null");
@@ -644,97 +631,49 @@ namespace AA.Objects.AL.Integration.PerPackage
                     PXTrace.WriteInformation("[DIAG-PRINTER] ⚠️ CRITICAL BLOCKER: Printer is NULL");
                     PXTrace.WriteInformation("[DIAG-PRINTER] This matches trace message: 'Model {0} has no printer for you'", 
                         printContext.Model?.Name ?? "unknown");
-                    PXTrace.WriteInformation("[DIAG-PRINTER] Likely causes:");
-                    PXTrace.WriteInformation("[DIAG-PRINTER]   1. Printer not configured in model");
-                    PXTrace.WriteInformation("[DIAG-PRINTER]   2. User does not have access to configured printer");
-                    PXTrace.WriteInformation("[DIAG-PRINTER]   3. Printer override rule failed");
                 }
                 else
                 {
                     PXTrace.WriteInformation("[DIAG-PRINTER] ✓ Printer resolved: {0}", printContext.Printer.Name);
                 }
 
-                PXTrace.WriteInformation("[DIAG-PRINTER] === END PRINTER ASSIGNMENT & LINE-PRINT GATE DIAGNOSTICS ===");
+                PXTrace.WriteInformation("[DIAG-PRINTER] === END PRINTER ASSIGNMENT DIAGNOSTICS ===");
             }
             catch (Exception printerEx)
             {
                 PXTrace.WriteInformation("[DIAG-PRINTER] ⚠️ Error during printer diagnostics: {0}: {1}", 
                     printerEx.GetType().FullName, printerEx.Message);
-                PXTrace.WriteInformation("[DIAG-PRINTER] === END PRINTER ASSIGNMENT & LINE-PRINT GATE DIAGNOSTICS (with error) ===");
-            }
-
-            // ✅ DIAGNOSTIC: NATIVE CHECKLINEDOBPRINT GATE
-            // This is the second active blocker from the trace analysis
-            PXTrace.WriteInformation("[DIAG-GATE-PRINT] === BEGIN CHECKLINEDOBPRINT GATE DIAGNOSTICS ===");
-            try
-            {
-                // The proof trace showed: CheckLineDoPrint=False
-                // This gate decides whether package qualifies for printing at line level
-                PXTrace.WriteInformation("[DIAG-GATE-PRINT] Invoking native NbCopiesHelper.CheckLineDoPrint() via reflection...");
-                
-                bool checkLinePrintResult = InvokeCheckLineDoPrint(printContext);
-                
-                PXTrace.WriteInformation("[DIAG-GATE-PRINT] CheckLineDoPrint result: {0}", checkLinePrintResult);
-                
-                if (!checkLinePrintResult)
-                {
-                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] ⚠️ LINE-PRINT GATE BLOCKS: CheckLineDoPrint returned FALSE");
-                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] This means: NbCopiesHelper.CheckLineDoPrint(lc) failed");
-                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] Native logic (decompiled):");
-                    PXTrace.WriteInformation("[DIAG-GATE-PRINT]   ILabelOption opt = FindExtension<ILabelOption>(row);");
-                    PXTrace.WriteInformation("[DIAG-GATE-PRINT]   return opt == null || opt.UsrALPrintLabel.GetValueOrDefault();");
-                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] If opt is not null AND UsrALPrintLabel is FALSE, this blocks printing.");
-                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] Investigate package row's UsrALPrintLabel field value.");
-                }
-                else
-                {
-                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] ✓ Line-print gate passes: CheckLineDoPrint returned TRUE");
-                }
-
-                PXTrace.WriteInformation("[DIAG-GATE-PRINT] === END CHECKLINEDOBPRINT GATE DIAGNOSTICS ===");
-            }
-            catch (Exception gateEx)
-            {
-                PXTrace.WriteInformation("[DIAG-GATE-PRINT] ⚠️ Error invoking CheckLineDoPrint: {0}: {1}", 
-                    gateEx.GetType().FullName, gateEx.Message);
-                PXTrace.WriteInformation("[DIAG-GATE-PRINT] === END CHECKLINEDOBPRINT GATE DIAGNOSTICS (with error) ===");
+                PXTrace.WriteInformation("[DIAG-PRINTER] === END PRINTER ASSIGNMENT DIAGNOSTICS (with error) ===");
             }
 
             // ✅ DIAGNOSTIC: Wrap PrintLabels call to capture what happens
             try
             {
-                PrintResults results = _labelGenerator.PrintLabels(printContext);
+                    PrintResults results = _labelGenerator.PrintLabels(printContext);
                 
                 if (results == null)
                     throw new PXException("PrintLabels returned null.");
 
-                // ✅ DIAGNOSTIC: FOCUSED RESULTS ANALYSIS
-                PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: Print Results Analysis ===");
-                int nbLabelsValue = results.NbLabels;
-                PXTrace.WriteInformation("[DIAG-RESULTS] NbLabels: {0}", nbLabelsValue);
-                PXTrace.WriteInformation("[DIAG-RESULTS] PrintResults type: {0}", results.GetType().FullName);
-                
-                if (nbLabelsValue == 0)
+                // ✅ [RESULT] Diagnostics: Log results immediately after PrintLabels
+                PXTrace.WriteInformation("[RESULT] NbLabels={0}", results.NbLabels);
+                PXTrace.WriteInformation("[RESULT] PrintResults type: {0}", results.GetType().FullName);
+                PXTrace.WriteInformation("[RESULT] === SUCCESS SIGNATURE TEST ===");
+                PXTrace.WriteInformation("[RESULT] Selected LineNbr: {0}, NbLabels: {1}", selectedPackageLineNbr, results.NbLabels);
+                if (results.NbLabels == 1)
                 {
-                    PXTrace.WriteInformation("[DIAG-RESULTS] ⚠️ Zero labels generated");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] === LIKELY ACTIVE BLOCKERS ===");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] 1. PRINTER ASSIGNMENT (from [DIAG-PRINTER] logs):");
-                    PXTrace.WriteInformation("[DIAG-RESULTS]    If printContext.Printer == null → printing blocked");
-                    PXTrace.WriteInformation("[DIAG-RESULTS]    Check model printer configuration and user access");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] 2. LINE-PRINT GATE (from [DIAG-GATE-PRINT] logs):");
-                    PXTrace.WriteInformation("[DIAG-RESULTS]    If CheckLineDoPrint() returned FALSE → printing blocked");
-                    PXTrace.WriteInformation("[DIAG-RESULTS]    Check package row UsrALPrintLabel field");
-                    PXTrace.WriteInformation("[DIAG-RESULTS] COPY-COUNT IS NOT THE BLOCKER (proven working from earlier trace)");
+                    PXTrace.WriteInformation("[RESULT] ✅ PASS: Single label printed as expected");
+                }
+                else if (results.NbLabels == 0)
+                {
+                    PXTrace.WriteInformation("[RESULT] ❌ FAIL: No labels generated (expected 1)");
                 }
                 else
                 {
-                    PXTrace.WriteInformation("[DIAG-RESULTS] ✅ Labels generated: {0}", nbLabelsValue);
+                    PXTrace.WriteInformation("[RESULT] ⚠️ UNEXPECTED: Multiple labels printed (expected 1, got {0})", results.NbLabels);
                 }
 
-                PXTrace.WriteInformation("[SERVICE] === END Print Results Analysis ===");
-
                 PXTrace.WriteInformation(
-                    $"[SERVICE] Row-selection native print finished: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={nbLabelsValue}");
+                    $"[SERVICE] Row-selection native print finished: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
 
                 return results;
             }
