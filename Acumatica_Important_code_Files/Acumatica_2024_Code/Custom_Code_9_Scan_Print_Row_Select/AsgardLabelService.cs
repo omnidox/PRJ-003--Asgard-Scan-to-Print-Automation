@@ -331,9 +331,11 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation(
                 $"[SERVICE] Row-selection native print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
 
-            // ✅ DIAGNOSTIC: Instrument the native ViewDef → ViewResult → ViewSelect path
-            // This is what BasicLabelGenerator uses when SingleRow is null
-            PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: Native ALPackages Path Resolution ===");
+            // ✅ [SECONDARY/VERBOSE] DIAGNOSTIC: Instrument the native ViewDef → ViewResult → ViewSelect path
+            // NOTE: Trace already confirmed that ViewSelect still returns the full Packages collection
+            // regardless of PXView replacement. This block is kept for reference but is no longer the
+            // primary diagnostic focus. The real fix is the Asgard template (ALDetailRows.Row vs Packages).
+            PXTrace.WriteInformation("[SERVICE] === [SECONDARY] Native ALPackages Path Resolution ===");
             try
             {
                 string basedOnView = printContext.Model != null ? printContext.Model.BasedOnView : "null";
@@ -563,13 +565,13 @@ namespace AA.Objects.AL.Integration.PerPackage
                     PXTrace.WriteInformation("[DIAG-NATIVE] ⚠️ ViewSelect result is NULL");
                 }
 
-                PXTrace.WriteInformation("[SERVICE] === END Native ALPackages Path Resolution ===");
+                PXTrace.WriteInformation("[SERVICE] === [SECONDARY] END Native ALPackages Path Resolution ===");
             }
             catch (Exception nativePathEx)
             {
                 PXTrace.WriteInformation("[DIAG-NATIVE] ⚠️ Error during native path diagnostics: {0}: {1}", 
                     nativePathEx.GetType().FullName, nativePathEx.Message);
-                PXTrace.WriteInformation("[SERVICE] === END Native ALPackages Path Resolution (with error) ===");
+                PXTrace.WriteInformation("[SERVICE] === [SECONDARY] END Native ALPackages Path Resolution (with error) ===");
             }
 
             // ✅ DIAGNOSTIC: Inspect print eligibility before calling PrintLabels
@@ -716,6 +718,22 @@ namespace AA.Objects.AL.Integration.PerPackage
                 PXTrace.WriteInformation("[DIAG-PRINTER] === END PRINTER ASSIGNMENT DIAGNOSTICS (with error) ===");
             }
 
+            // ✅ [UCC-BINDING] PRE-PRINT DIAGNOSTIC: Template binding warning
+            // Root cause confirmed: Packages.UsrTCUCC128 reads from the full Packages collection
+            // and defaults to the FIRST row regardless of which package is selected.
+            // The correct template expression is: ALDetailRows.Row.UsrTCUCC128
+            PXTrace.WriteInformation("[UCC-BINDING] === PRE-PRINT TEMPLATE BINDING DIAGNOSTICS ===");
+            PXTrace.WriteInformation("[UCC-BINDING] Selected LineNbr to print: {0}", selectedPackageLineNbr);
+            PXTrace.WriteInformation("[UCC-BINDING] Selected package UsrTCUCC128: {0}", selectedUcc128 ?? "null");
+            PXTrace.WriteInformation("[UCC-BINDING] printContext.SingleRow type: {0}",
+                printContext.SingleRow?.GetType().FullName ?? "null");
+            PXTrace.WriteInformation("[UCC-BINDING] ALDetailRows expected to be active during PrintLabels: TRUE");
+            PXTrace.WriteInformation("[UCC-BINDING] ALDetailRows.Row is expected to resolve to the current detail row during Asgard iteration. Verify via template test expressions below.");
+            PXTrace.WriteInformation("[UCC-BINDING] ⚠️ WARNING: If template uses {{Packages.UsrTCUCC128}}, it will ALWAYS read row 1 of the full Packages collection.");
+            PXTrace.WriteInformation("[UCC-BINDING] ✅ REQUIRED template fix: Replace {{Packages.UsrTCUCC128}} with {{ALDetailRows.Row.UsrTCUCC128}}");
+            PXTrace.WriteInformation("[UCC-BINDING] ✅ REQUIRED template fix: Replace {{(Packages.UsrTCUCC128)|zpl.ToBarcode 'GS1-Code128-175-NoHRI'}} with {{(ALDetailRows.Row.UsrTCUCC128)|zpl.ToBarcode 'GS1-Code128-175-NoHRI'}}");
+            PXTrace.WriteInformation("[UCC-BINDING] === END PRE-PRINT TEMPLATE BINDING DIAGNOSTICS ===");
+
             // ✅ DIAGNOSTIC: Wrap PrintLabels call to capture what happens
             try
             {
@@ -741,6 +759,19 @@ namespace AA.Objects.AL.Integration.PerPackage
                 {
                     PXTrace.WriteInformation("[RESULT] ⚠️ UNEXPECTED: Multiple labels printed (expected 1, got {0})", results.NbLabels);
                 }
+
+                // ✅ [UCC-BINDING] POST-PRINT DIAGNOSTIC: UCC value verification reminder
+                PXTrace.WriteInformation("[UCC-BINDING] === POST-PRINT UCC VERIFICATION ===");
+                PXTrace.WriteInformation("[UCC-BINDING] Selected LineNbr: {0}", selectedPackageLineNbr);
+                PXTrace.WriteInformation("[UCC-BINDING] Expected UsrTCUCC128 on printed label: {0}", selectedUcc128 ?? "null");
+                PXTrace.WriteInformation("[UCC-BINDING] ⚠️ ACTION REQUIRED: Inspect the ZPL/label output and verify the barcode value matches the expected UCC above.");
+                PXTrace.WriteInformation("[UCC-BINDING] If the printed UCC does NOT match, the template is still using {{Packages.UsrTCUCC128}} (full collection, defaults to row 1).");
+                PXTrace.WriteInformation("[UCC-BINDING] Fix: Update the Asgard label template to use {{ALDetailRows.Row.UsrTCUCC128}} instead.");
+                PXTrace.WriteInformation("[UCC-BINDING] Diagnostic template expressions to test in order:");
+                PXTrace.WriteInformation("[UCC-BINDING]   1. {{ALDetailRows}}                                    (should render as non-empty object)");
+                PXTrace.WriteInformation("[UCC-BINDING]   2. {{ALDetailRows.Row}}                                (should render as a DAC row object)");
+                PXTrace.WriteInformation("[UCC-BINDING]   3. {{ALDetailRows.Row.UsrTCUCC128}}                   (should render the expected UCC value above)");
+                PXTrace.WriteInformation("[UCC-BINDING] === END POST-PRINT UCC VERIFICATION ===");
 
                 PXTrace.WriteInformation(
                     $"[SERVICE] Row-selection native print finished: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
