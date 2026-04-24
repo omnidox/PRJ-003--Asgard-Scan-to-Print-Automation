@@ -106,15 +106,6 @@ namespace AA.Objects.AL.Integration.PerPackage
                 throw new PXException(
                     $"The selected label model must belong to the Shipments screen (SO302000). Current ScreenID: '{model.ScreenID}'.");
             }
-
-            Models.Model slotModel;
-            Models.TryGetModelByID(modelId, out slotModel);
-
-            if (slotModel == null)
-            {
-                throw new PXException(
-                    $"The selected label model '{model.Name}' was not found in the Asgard model slot cache.");
-            }
         }
 
         public virtual void TraceModelDiagnostics(ALModel model, Guid? modelId, SOShipment shipment)
