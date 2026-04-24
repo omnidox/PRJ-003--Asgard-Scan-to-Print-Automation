@@ -294,12 +294,19 @@ namespace AA.Objects.AL.Integration.PerPackage
                         $"Could not find package line {selectedPackageLineNbr} in {basedOnViewName}.");
                 }
                 
-                // ✅ Assign the actual PXResult row directly (not wrapped)
-                // Asgard expects the row type itself, not a container
-                printContext.SingleRow = selectedAsgardRow;
+                // ✅ Create a filtered resultset containing only the selected row
+                // Use Activator.CreateInstance to dynamically create the correct PXResultset<SOPackageDetail> type
+                // Use IList interface to add the row (avoids compile-time generic type constraint)
+                object filteredResultSet = Activator.CreateInstance(viewSelectResult.GetType());
+                ((IList)filteredResultSet).Add(selectedAsgardRow);
+                
+                // ✅ Assign the PXResultset to SingleRow
+                // This matches Asgard's expected type: IPXResultset with item type SOPackageDetail
+                printContext.SingleRow = filteredResultSet;
                 printContext.IsSilent = true;
                 
-                PXTrace.WriteInformation("[SERVICE] ✓ Selected PXResult row assigned directly to printContext.SingleRow");
+                PXTrace.WriteInformation("[SERVICE] ✓ Filtered PXResultset created and assigned to printContext.SingleRow");
+                PXTrace.WriteInformation("[SERVICE] SingleRow type: {0}", filteredResultSet.GetType().FullName);
             }
             catch (Exception asgardRowEx)
             {
@@ -570,11 +577,13 @@ namespace AA.Objects.AL.Integration.PerPackage
                             printContext.Model.NbCopiesExpr ?? "null");
                     }
                     
-                    // Get the unwrapped main row (what lc.LabelRow resolves to)
-                    IBqlTable unwrappedRow = PXResult.UnwrapMain(packageRow);
+                    // Get the unwrapped package detail from the Asgard PXResult row
+                    // This is what Asgard will use for template evaluation
+                    SOPackageDetail unwrappedRow = PXResult.Unwrap<SOPackageDetail>(selectedAsgardRow);
                     if (unwrappedRow != null)
                     {
-                        PXTrace.WriteInformation("[DIAG-GATE] Unwrapped main row type: {0}", unwrappedRow.GetType().FullName);
+                        PXTrace.WriteInformation("[DIAG-GATE] Unwrapped row type: {0}", unwrappedRow.GetType().FullName);
+                        PXTrace.WriteInformation("[DIAG-GATE] Unwrapped row LineNbr: {0}", unwrappedRow.LineNbr);
                     }
                     
                     // Try to find ILabelOption extension and log copy override fields
