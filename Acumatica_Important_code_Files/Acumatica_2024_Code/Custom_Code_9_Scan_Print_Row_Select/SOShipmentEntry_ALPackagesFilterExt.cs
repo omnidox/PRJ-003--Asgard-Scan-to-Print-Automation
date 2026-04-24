@@ -26,11 +26,20 @@ namespace AA.Objects.AL.Integration.PerPackage
             if (_originalALPackagesView == null)
                 return;
 
+            // ✅ Replace the PXView with a filtered delegate
+            // Attempt to make both manual selects and ViewUtils.ViewSelect() use the filter.
+            // The diagnostic in AsgardLabelService proves whether this actually works.
             Base.Views["ALPackages"] = new PXView(
                 Base,
                 true,
                 _originalALPackagesView.BqlSelect,
                 new PXSelectDelegate(FilteredALPackages));
+
+            // ✅ [VIEW-REPLACE] Diagnostic: Log the view replacement
+            PXTrace.WriteInformation("[VIEW-REPLACE] Base.Views[ALPackages] replaced with filtered view type: {0}",
+                Base.Views["ALPackages"]?.GetType().FullName ?? "null");
+            PXTrace.WriteInformation("[VIEW-REPLACE] Original BqlSelect type: {0}",
+                _originalALPackagesView.BqlSelect?.GetType().FullName ?? "null");
         }
 
         protected virtual IEnumerable FilteredALPackages()

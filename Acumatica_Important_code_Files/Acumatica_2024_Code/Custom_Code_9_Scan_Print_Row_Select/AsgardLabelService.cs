@@ -391,6 +391,14 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 // Step 3: ViewSelect - what does the direct select return?
                 PXTrace.WriteInformation("[DIAG-NATIVE] === STEP 3: ViewUtils.ViewSelect ===");
+                
+                // ✅ [VIEW-REPLACE] CRITICAL DIAGNOSTIC: Verify PXView replacement affects ViewSelect
+                PXTrace.WriteInformation("[VIEW-REPLACE] === Checking whether PXView replacement affected native path ===");
+                PXTrace.WriteInformation("[VIEW-REPLACE] _graph.Views[ALPackages] type: {0}",
+                    _graph.Views["ALPackages"]?.GetType().FullName ?? "null");
+                PXTrace.WriteInformation("[VIEW-REPLACE] _graph.Views[ALPackages] is PXView: {0}",
+                    _graph.Views["ALPackages"] is PXView);
+                
                 object viewSelectResult = ViewUtils.ViewSelect(_graph, basedOnView);
                 
                 if (viewSelectResult != null)
@@ -410,6 +418,21 @@ namespace AA.Objects.AL.Integration.PerPackage
                         viewSelectFirstRow = viewSelectList.FirstOrDefault();
                         
                         PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect row count: {0}", viewSelectRowCount);
+                        
+                        // ✅ [VIEW-REPLACE] DIAGNOSTIC: Log whether filtered view actually affected the count
+                        if (viewSelectRowCount == 1)
+                        {
+                            PXTrace.WriteInformation("[VIEW-REPLACE] ✅ SUCCESS: ViewSelect now returns 1 row (was previously 2)");
+                        }
+                        else if (viewSelectRowCount == 2)
+                        {
+                            PXTrace.WriteInformation("[VIEW-REPLACE] ⚠️ UNCHANGED: ViewSelect still returns {0} rows (filter may not be applied)", viewSelectRowCount);
+                        }
+                        else
+                        {
+                            PXTrace.WriteInformation("[VIEW-REPLACE] ⚠️ UNEXPECTED: ViewSelect returns {0} rows", viewSelectRowCount);
+                        }
+                        
                         if (viewSelectFirstRow != null)
                         {
                             PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect first row type: {0}", viewSelectFirstRow.GetType().FullName);
@@ -441,8 +464,23 @@ namespace AA.Objects.AL.Integration.PerPackage
                                 if (pkgDetail != null)
                                 {
                                     int displayValue = (pkgDetail.LineNbr == null) ? -1 : pkgDetail.LineNbr.Value;
-                                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect row {0}: SOPackageDetail.LineNbr = {1}", 
-                                        i, displayValue);
+                                    
+                                    // ✅ [VIEW-REPLACE] Also log UCC128 value if available
+                                    object ucc128Value = null;
+                                    try
+                                    {
+                                        ucc128Value = pkgDetail.GetType().GetProperty("UsrTCUCC128")?.GetValue(pkgDetail);
+                                    }
+                                    catch { }
+                                    
+                                    PXTrace.WriteInformation("[DIAG-NATIVE] ViewSelect row {0}: SOPackageDetail.LineNbr = {1}, UsrTCUCC128 = {2}", 
+                                        i, displayValue, ucc128Value ?? "null");
+                                    
+                                    // ✅ [VIEW-REPLACE] DIAGNOSTIC: Confirm selected row matches expected LineNbr
+                                    if (displayValue == selectedPackageLineNbr)
+                                    {
+                                        PXTrace.WriteInformation("[VIEW-REPLACE] ✅ ROW {0} MATCHES selected LineNbr {1}", i, selectedPackageLineNbr);
+                                    }
                                 }
                                 else
                                 {
@@ -483,12 +521,35 @@ namespace AA.Objects.AL.Integration.PerPackage
                                     if (pkgDetail != null)
                                     {
                                         int displayValue = (pkgDetail.LineNbr == null) ? -1 : pkgDetail.LineNbr.Value;
-                                        PXTrace.WriteInformation("[DIAG-NATIVE] Manual row {0}: LineNbr = {1}", 
-                                            i, displayValue);
+                                        
+                                        // ✅ [VIEW-REPLACE] Also log UCC128 value if available
+                                        object ucc128Value = null;
+                                        try
+                                        {
+                                            ucc128Value = pkgDetail.GetType().GetProperty("UsrTCUCC128")?.GetValue(pkgDetail);
+                                        }
+                                        catch { }
+                                        
+                                        PXTrace.WriteInformation("[DIAG-NATIVE] Manual row {0}: LineNbr = {1}, UsrTCUCC128 = {2}", 
+                                            i, displayValue, ucc128Value ?? "null");
                                     }
                                 }
                                 catch { }
                             }
+                        }
+                        
+                        // ✅ [VIEW-REPLACE] DIAGNOSTIC: Compare whether filtering is working
+                        if (manualRowCount == 1 && viewSelectRowCount == 1)
+                        {
+                            PXTrace.WriteInformation("[VIEW-REPLACE] ✅ MATCH: Both SelectMultiBound and ViewSelect return 1 row (filter IS working)");
+                        }
+                        else if (manualRowCount == 1 && viewSelectRowCount != 1)
+                        {
+                            PXTrace.WriteInformation("[VIEW-REPLACE] ⚠️ MISMATCH: SelectMultiBound returns 1 row, but ViewSelect returns {0} rows (filter NOT applied to native path)", viewSelectRowCount);
+                        }
+                        else
+                        {
+                            PXTrace.WriteInformation("[VIEW-REPLACE] ⚠️ UNEXPECTED: SelectMultiBound={0}, ViewSelect={1}", manualRowCount, viewSelectRowCount);
                         }
                         
                         PXTrace.WriteInformation("[DIAG-NATIVE] Comparison result - same row count: {0}", 
