@@ -163,22 +163,23 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation(
                 $"[SERVICE] Row-selection native print: shipment {shipment.ShipmentNbr} will print package line {selectedPackageLineNbr}");
 
+            // ✅ CRITICAL: Reload the Packages view to ensure clean cache state
+            // This forces Acumatica to re-fetch package data from the database
+            _graph.Views["Packages"].RequestRefresh();
+            PXTrace.WriteInformation("[SERVICE] Packages view refresh requested");
+            
             // ✅ CRITICAL: Set Packages.Current inside the service to ensure correct context
             // This is essential because CreatePrintContext uses the current package row for the label
             PXTrace.WriteInformation("[SERVICE] Setting Packages.Current to line {0} before CreatePrintContext", selectedPackageLineNbr);
             _graph.Packages.Current = packageToVerify;
             
-            // ✅ CRITICAL: Sync the cache after setting Current to ensure internal structures are updated
-            // This guarantees that when CreatePrintContext queries the current row, it gets the correct one
-            try
-            {
-                _graph.Packages.Cache.RaiseFieldUpdated<SOPackageDetail.lineNbr>(packageToVerify, packageToVerify.LineNbr);
-                PXTrace.WriteInformation("[SERVICE] Packages cache synced after setting current row to line {0}", selectedPackageLineNbr);
-            }
-            catch (Exception cacheEx)
-            {
-                PXTrace.WriteInformation("[SERVICE] Note: Cache sync raised (expected): {0}", cacheEx.Message);
-            }
+            // ✅ CRITICAL: Clear and reload the cache to force it to see the new current row
+            // Re-fetch the row from cache to ensure CreatePrintContext sees the right data
+            PXLongOperation.ClearErrorInfo();
+            packageToVerify = _graph.Packages.Cache.Locate(packageToVerify);
+            _graph.Packages.Current = packageToVerify;
+            
+            PXTrace.WriteInformation("[SERVICE] Packages cache reloaded and current row confirmed for line {0}", selectedPackageLineNbr);
 
             // ✅ CRITICAL: Assume filter scope is already activated by the caller (SOShipmentEntry_AsgardExt)
             // This allows the scope to remain active across the fresh graph context
@@ -216,6 +217,118 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             PXTrace.WriteInformation(
                 $"[SERVICE] Row-selection native print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
+
+            // ✅ CRITICAL PROOF: Verify checkbox state BEFORE printing
+            // This proves whether the flag logic is correct before we check row binding
+            PXTrace.WriteInformation("[PROOF-CHECKBOX] === BEGIN: Package Flag State Before Print ===");
+            try
+            {
+                PXTrace.WriteInformation("[PROOF-CHECKBOX] Inspecting all packages for shipment {0}", shipment.ShipmentNbr);
+                
+                foreach (SOPackageDetailEx pkg in PXSelect<
+                    SOPackageDetailEx,
+                    Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
+                    .Select(_graph, shipment.ShipmentNbr))
+                {
+                    if (pkg != null)
+                    {
+                        object flagValue = _graph.Packages.Cache.GetValue(pkg, "UsrALPrintLabel");
+                        bool isFlagSet = flagValue is bool b && b;
+                        
+                        PXTrace.WriteInformation("[PROOF-CHECKBOX] LineNbr={0}: UsrALPrintLabel={1}", 
+                            pkg.LineNbr, isFlagSet);
+                        
+                        if (pkg.LineNbr == selectedPackageLineNbr && isFlagSet)
+                        {
+                            PXTrace.WriteInformation("[PROOF-CHECKBOX] ✓ Selected package {0} flag is TRUE (correct)", selectedPackageLineNbr);
+                        }
+                        else if (pkg.LineNbr != selectedPackageLineNbr && isFlagSet)
+                        {
+                            PXTrace.WriteInformation("[PROOF-CHECKBOX] ⚠️ UNEXPECTED: Non-selected package {0} flag is also TRUE", pkg.LineNbr);
+                        }
+                        else if (pkg.LineNbr != selectedPackageLineNbr && !isFlagSet)
+                        {
+                            PXTrace.WriteInformation("[PROOF-CHECKBOX] ✓ Non-selected package {0} flag is FALSE (correct)", pkg.LineNbr);
+                        }
+                    }
+                }
+                
+                PXTrace.WriteInformation("[PROOF-CHECKBOX] === END: Package Flag State Before Print ===");
+            }
+            catch (Exception flagProofEx)
+            {
+                PXTrace.WriteInformation("[PROOF-CHECKBOX] ⚠️ Error during flag state proof: {0}", flagProofEx.Message);
+            }
+
+            // ✅ CRITICAL PROOF: What row is the label context actually bound to?
+            PXTrace.WriteInformation("[PROOF-ROW-BINDING] === BEGIN: Actual Context Row Binding ===");
+            try
+            {
+                PXTrace.WriteInformation("[PROOF-ROW-BINDING] printContext.Row type: {0}", 
+                    printContext.Row?.GetType().FullName ?? "null");
+                PXTrace.WriteInformation("[PROOF-ROW-BINDING] printContext.DetailRow type: {0}", 
+                    printContext.DetailRow?.GetType().FullName ?? "null");
+                PXTrace.WriteInformation("[PROOF-ROW-BINDING] printContext.LabelRow type: {0}", 
+                    printContext.LabelRow?.GetType().FullName ?? "null");
+
+                // Extract the actual barcode from each row object if possible
+                if (printContext.LabelRow != null)
+                {
+                    try
+                    {
+                        SOPackageDetail pkgFromLabel = PXResult.Unwrap<SOPackageDetail>(printContext.LabelRow);
+                        if (pkgFromLabel == null) pkgFromLabel = printContext.LabelRow as SOPackageDetail;
+                        
+                        if (pkgFromLabel != null)
+                        {
+                            PXTrace.WriteInformation("[PROOF-ROW-BINDING] LabelRow unwraps to: LineNbr={0}, UsrTCUCC128={1}", 
+                                pkgFromLabel.LineNbr ?? -999, pkgFromLabel.UsrTCUCC128 ?? "null");
+                            PXTrace.WriteInformation("[PROOF-ROW-BINDING] ✓ Expected: LineNbr={0}, UsrTCUCC128=00007168380000005253", 
+                                selectedPackageLineNbr);
+                            
+                            if (pkgFromLabel.LineNbr.HasValue && pkgFromLabel.LineNbr.Value == selectedPackageLineNbr)
+                            {
+                                PXTrace.WriteInformation("[PROOF-ROW-BINDING] ✅ MATCH: LabelRow is correctly bound to selected package");
+                            }
+                            else
+                            {
+                                PXTrace.WriteInformation("[PROOF-ROW-BINDING] ❌ MISMATCH: LabelRow is bound to WRONG package (LineNbr={0} instead of {1})", 
+                                    pkgFromLabel.LineNbr, selectedPackageLineNbr);
+                            }
+                        }
+                        else
+                        {
+                            PXTrace.WriteInformation("[PROOF-ROW-BINDING] LabelRow could not be unwrapped to SOPackageDetail");
+                            
+                            // Try DetailRow
+                            if (printContext.DetailRow != null)
+                            {
+                                SOPackageDetail pkgFromDetail = PXResult.Unwrap<SOPackageDetail>(printContext.DetailRow);
+                                if (pkgFromDetail == null) pkgFromDetail = printContext.DetailRow as SOPackageDetail;
+                                
+                                if (pkgFromDetail != null)
+                                {
+                                    PXTrace.WriteInformation("[PROOF-ROW-BINDING] DetailRow unwraps to: LineNbr={0}, UsrTCUCC128={1}", 
+                                        pkgFromDetail.LineNbr ?? -999, pkgFromDetail.UsrTCUCC128 ?? "null");
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception unwrapEx)
+                    {
+                        PXTrace.WriteInformation("[PROOF-ROW-BINDING] Error unwrapping LabelRow: {0}", unwrapEx.Message);
+                    }
+                }
+                else
+                {
+                    PXTrace.WriteInformation("[PROOF-ROW-BINDING] LabelRow is NULL - template will use Row or DetailRow");
+                }
+            }
+            catch (Exception proofEx)
+            {
+                PXTrace.WriteInformation("[PROOF-ROW-BINDING] ⚠️ Error during row binding proof: {0}", proofEx.Message);
+            }
+            PXTrace.WriteInformation("[PROOF-ROW-BINDING] === END: Actual Context Row Binding ===");
 
             // ✅ DIAGNOSTIC: Instrument the native ViewDef → ViewResult → ViewSelect path
             // This is what BasicLabelGenerator uses when SingleRow is null
