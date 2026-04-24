@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using AA.Objects.Labels;
+using AA.Objects.Core;
 using Asgard.Labels.Abstractions.Interface;
 using Asgard.Labels.Impl.Context;
 using Asgard.Labels.Impl.Poco;
