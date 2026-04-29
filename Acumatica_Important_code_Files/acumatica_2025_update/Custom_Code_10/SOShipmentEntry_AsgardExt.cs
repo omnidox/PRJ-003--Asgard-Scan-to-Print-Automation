@@ -140,30 +140,24 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 PXTrace.WriteInformation("[LONGOP] Delegating to AsgardLabelService with resolved modelId={0}", modelId);
 
-                // ✅ CRITICAL: Activate filter scope BEFORE delegating to service
-                // This ensures the filtered view is active when the service calls CreatePrintContext()
-                // The service will call Asgard, which queries ALiStarPackages, which will return only the selected package
-                using (ALPackagesFilterScope.Activate(shipmentNbr, new[] { packageLineNbr }))
+                // ✅ Service owns filter scope activation
+                // No outer wrapping needed here - service will activate ALPackagesFilterScope internally
+                PrintResults results = service.PrintSelectedPackageUsingNativeContext(
+                    shipmentInLongOp,
+                    modelId,  // ✅ Pass the explicitly resolved modelId
+                    packageLineNbr,
+                    adapter);
+
+                if (results == null)
+                    throw new PXException("Label printing returned no results.");
+
+                if (results.NbLabels <= 0)
                 {
-                    PXTrace.WriteInformation("[LONGOP] ALPackagesFilterScope activated - service will run under active filter");
-
-                    PrintResults results = service.PrintSelectedPackageUsingNativeContext(
-                        shipmentInLongOp,
-                        modelId,  // ✅ Pass the explicitly resolved modelId
-                        packageLineNbr,
-                        adapter);
-
-                    if (results == null)
-                        throw new PXException("Label printing returned no results.");
-
-                    if (results.NbLabels <= 0)
-                    {
-                        throw new PXException(
-                            "No labels were generated. Please verify the selected package is valid and the selected label model is configured correctly.");
-                    }
-
-                    PXTrace.WriteInformation("[LONGOP] Successfully printed {0} label(s) for package line {1}", results.NbLabels, packageLineNbr);
+                    throw new PXException(
+                        "No labels were generated. Please verify the selected package is valid and the selected label model is configured correctly.");
                 }
+
+                PXTrace.WriteInformation("[LONGOP] Successfully printed {0} label(s) for package line {1}", results.NbLabels, packageLineNbr);
             });
         }
 

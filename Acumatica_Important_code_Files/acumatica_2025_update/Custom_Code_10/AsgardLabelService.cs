@@ -172,13 +172,11 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation(
                 $"[SERVICE] Row-selection native print: shipment {shipment.ShipmentNbr} will print package line {selectedPackageLineNbr}");
 
-            // ✅ CRITICAL: Use the model's ACTUAL BasedOnView, not hardcoded assumptions
-            // This is the architectural fix: let Asgard use its configured view with the proper row structure
+            // ✅ Determine the model's BasedOnView to understand the data structure
             string basedOnViewName = null;
             
             try
             {
-                // Get the model to determine its BasedOnView
                 ALModel resolvedModel = GetModelById(modelId);
                 if (resolvedModel != null)
                 {
@@ -188,26 +186,26 @@ namespace AA.Objects.AL.Integration.PerPackage
                 
                 if (string.IsNullOrWhiteSpace(basedOnViewName))
                 {
-                    basedOnViewName = "ALPackages";  // Default fallback
-                    PXTrace.WriteInformation("[SERVICE] ⚠️ Model has no BasedOnView specified, using default: {0}", basedOnViewName);
+                    basedOnViewName = "ALPackages";
+                    PXTrace.WriteInformation("[SERVICE] Model has no BasedOnView specified, using default: {0}", basedOnViewName);
                 }
             }
             catch (Exception ex)
             {
-                PXTrace.WriteInformation("[SERVICE] ⚠️ Error determining BasedOnView: {0}", ex.Message);
-                basedOnViewName = "ALPackages";  // Safe fallback
+                PXTrace.WriteInformation("[SERVICE] Error determining BasedOnView: {0}", ex.Message);
+                basedOnViewName = "ALPackages";
             }
 
-            // ✅ Activate filter scope BEFORE creating print context
-            // This ensures the filtered view is active when Asgard queries it
+            // ✅ SINGLE SCOPE OWNERSHIP: Service activates and manages the filter scope
+            // This is the only place the filter is activated
             using (ALPackagesFilterScope.Activate(shipment.ShipmentNbr, new[] { selectedPackageLineNbr }))
             {
                 PXTrace.WriteInformation("[SERVICE] ALPackagesFilterScope activated for package line {0}", selectedPackageLineNbr);
 
-                // ✅ CRITICAL FIX: Use CreatePrintContext (not CreateSingleRowPrintContext)
-                // CreatePrintContext queries the model's BasedOnView naturally and gets the correct PXResult structure
-                PXTrace.WriteInformation("[SERVICE] Calling CreatePrintContext with BasedOnView={0}, ShipmentNbr={1}, ModelID={2}", 
-                    basedOnViewName, shipment.ShipmentNbr, modelId);
+                // ✅ CRITICAL: Use native CreatePrintContext (not CreateSingleRowPrintContext)
+                // While filter scope is active, Asgard will query the filtered view and get the correct row structure
+                PXTrace.WriteInformation("[SERVICE] Calling CreatePrintContext with BasedOnView={0}, ModelID={1}", 
+                    basedOnViewName, modelId);
 
                 AcuLabelContext printContext = AcuLabelContext.CreatePrintContext(
                     _graph.GetType(),
@@ -221,8 +219,8 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 string modelName = printContext.Model != null ? printContext.Model.Name : "<null>";
                 string printerName = printContext.Printer != null ? printContext.Printer.Name : "<null>";
-                PXTrace.WriteInformation("[SERVICE] CreatePrintContext succeeded. Model={0}, Printer={1}, BasedOnView={2}", 
-                    modelName, printerName, basedOnViewName);
+                PXTrace.WriteInformation("[SERVICE] CreatePrintContext succeeded. Model={0}, Printer={1}", 
+                    modelName, printerName);
 
                 if (printContext.Model == null)
                     throw new PXException("printContext.Model is null.");
@@ -237,16 +235,10 @@ namespace AA.Objects.AL.Integration.PerPackage
                 }
 
                 PXTrace.WriteInformation(
-                    $"[SERVICE] Native print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
+                    $"[SERVICE] Print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
 
-                // ✅ DIAGNOSTIC: Trace model and row state
-                PXTrace.WriteInformation("[DIAG-CONTEXT] === Print Context State ===");
-                PXTrace.WriteInformation("[DIAG-CONTEXT] printContext.Row type: {0}", printContext.Row?.GetType().FullName ?? "null");
-                PXTrace.WriteInformation("[DIAG-CONTEXT] printContext.SingleRow: {0}", printContext.SingleRow?.GetType().FullName ?? "null");
-                PXTrace.WriteInformation("[DIAG-CONTEXT] ALPackagesFilterScope active: {0}", ALPackagesFilterScope.IsActive);
-                PXTrace.WriteInformation("[DIAG-CONTEXT] === End Print Context State ===");
-
-                // ✅ Call PrintLabels with the properly constructed context
+                // ✅ Call PrintLabels while filter scope is active
+                // Filter ensures Asgard gets only the selected package row
                 try
                 {
                     PrintResults results = _labelGenerator.PrintLabels(printContext);
@@ -254,7 +246,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     if (results == null)
                         throw new PXException("PrintLabels returned null.");
 
-                    PXTrace.WriteInformation("[RESULT] NbLabels={0} for selected package {1}", results.NbLabels, selectedPackageLineNbr);
+                    PXTrace.WriteInformation("[RESULT] NbLabels={0} for package {1}", results.NbLabels, selectedPackageLineNbr);
                     
                     if (results.NbLabels == 1)
                     {
@@ -271,16 +263,14 @@ namespace AA.Objects.AL.Integration.PerPackage
                     }
 
                     PXTrace.WriteInformation(
-                        $"[SERVICE] Native print completed: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
+                        $"[SERVICE] Print completed: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
 
                     return results;
                 }
                 catch (Exception printEx)
                 {
-                    PXTrace.WriteInformation("[SERVICE] === DIAGNOSTIC: PrintLabels Exception ===");
-                    PXTrace.WriteInformation("[DIAG] Exception Type: {0}", printEx.GetType().FullName);
-                    PXTrace.WriteInformation("[DIAG] Message: {0}", printEx.Message);
-                    PXTrace.WriteInformation("[SERVICE] === END Exception Diagnostic ===");
+                    PXTrace.WriteInformation("[SERVICE] PrintLabels exception: {0}", printEx.GetType().FullName);
+                    PXTrace.WriteInformation("[SERVICE] Exception message: {0}", printEx.Message);
                     throw;
                 }
             }  // End of ALPackagesFilterScope using block
