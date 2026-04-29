@@ -55,6 +55,34 @@ namespace AA.Objects.AL.Integration.PerPackage
                 throw new PXException(
                     "No package is selected. Please select a package row and try again.");
 
+            // ✅ NEW: Log all available information from the selected package
+            // This provides complete visibility into what fields are available during Phase 1 testing
+            if (currentSelected != null)
+            {
+                PXTrace.WriteInformation("[PKG-ALL] === All Available Fields from SOPackageDetail ===");
+                
+                var properties = currentSelected.GetType().GetProperties();
+                foreach (var prop in properties)
+                {
+                    try
+                    {
+                        object value = prop.GetValue(currentSelected);
+                        string displayValue = value?.ToString() ?? "null";
+                        PXTrace.WriteInformation("[PKG-ALL] {0}: {1}", prop.Name, displayValue);
+                    }
+                    catch (Exception ex)
+                    {
+                        PXTrace.WriteInformation("[PKG-ALL] {0}: ERROR - {1}", prop.Name, ex.Message);
+                    }
+                }
+                
+                PXTrace.WriteInformation("[PKG-ALL] === End of Field List ===");
+            }
+            else
+            {
+                PXTrace.WriteInformation("[PKG-ALL] WARNING: currentSelected is NULL - cannot log fields");
+            }
+
             if (Base.IsDirty)
             {
                 Base.Actions.PressSave();
