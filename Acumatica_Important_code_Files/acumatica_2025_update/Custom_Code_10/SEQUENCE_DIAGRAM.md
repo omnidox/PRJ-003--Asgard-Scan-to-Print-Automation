@@ -1,212 +1,249 @@
 ```mermaid
 sequenceDiagram
-    actor User
-    participant AsgardExt as SOShipmentEntry_AsgardExt [C]
-    participant LongOp as PXLongOperation
-    participant Service as AsgardLabelService [B]
-    participant FilterScope as ALPackagesFilterScope [A]
+    participant UserAction as User<br/>(Button or Scan)
+    participant FileE as [E]<br/>SOShipmentEntry_<br/>ScanTriggerExt
+    participant FileC as [C]<br/>SOShipmentEntry_<br/>AsgardExt
+    participant FileB as [B]<br/>AsgardLabelService
+    participant FileA as [A]<br/>ALPackages<br/>FilterScope
+    participant FileD as [D]<br/>SOShipmentEntry_<br/>ALPackagesFilterExt
     participant Asgard as Asgard<br/>Label Engine
 
-    User->>AsgardExt: Click Print Button
-    activate AsgardExt
+    alt Button Click
+        UserAction->>FileC: Click Print Button
+    else Package Confirmed (Scan)
+        UserAction->>FileE: RowPersisted event fired
+        activate FileE
+        FileE->>FileE: Check: package confirmed?
+        FileE->>FileE: PXLongOperation.StartOperation() [E]
+    end
+
+    activate FileC
     
-    AsgardExt->>AsgardExt: PrintForPackage() [C]<br/>Validate shipment exists & saved
+    FileC->>FileC: PrintForPackage() [C]<br/>Validate shipment exists
+    FileC->>FileC: Get selected package LineNbr [C]
     
-    AsgardExt->>LongOp: StartOperation()
-    activate LongOp
+    alt Only for Scan Trigger
+        FileE->>FileC: Create fresh graph<br/>Call PrintForPackage() [E→C]
+    else Button Click (already in fresh graph)
+        FileC->>FileC: Create fresh graph [C]<br/>inside PXLongOperation
+    end
+
+    Note over FileC: [C] takes control<br/>Create AsgardLabelService
+
+    FileC->>FileB: new AsgardLabelService(graph) [C→B]
+    activate FileB
+
+    FileB->>FileB: ValidateShipmentForAsgardPrint() [B]
+    FileB->>FileB: ResolveModelId() [B]
+    FileB->>FileB: GetModelById() [B]
+    FileB->>FileB: ValidateModelForNativeContextPrinting() [B]
+
+    Note over FileB: [B] about to create context<br/>ACTIVATE FILTER FIRST!
+
+    FileB->>FileA: Activate(shipmentNbr, [selectedLineNbr]) [B→A]
+    activate FileA
     
-    LongOp->>LongOp: Create fresh<br/>SOShipmentEntry graph
-    LongOp->>LongOp: Reload shipment<br/>in new graph
+    Note over FileA: [A] Filter now ACTIVE<br/>AsyncLocal state set
+
+    FileB->>FileB: CreatePrintContext() [B]
+
+    Note over FileB: [B] internally calls ViewUtils.ViewSelect()<br/>WHILE filter is active
+
+    FileB->>FileD: Query ALPackages view [B→D]
+    activate FileD
     
-    LongOp->>Service: new AsgardLabelService() [B]
-    activate Service
+    FileD->>FileD: FilteredALPackages() delegate [D]
+    FileD->>FileA: Matches(shipmentNbr, lineNbr)? [D→A]
     
-    Service->>Service: ValidateShipmentForAsgardPrint() [B]
-    Service->>Service: ResolveModelId() [B]
-    Service->>Service: GetModelById() [B]
-    Service->>Service: ValidateModelForNativeContextPrinting() [B]
+    FileA->>FileA: Check filter state [A]
+    FileA-->>FileD: YES - include this package [A]
     
-    Note over Service: About to create context<br/>ACTIVATE FILTER FIRST!
-    
-    Service->>FilterScope: Activate() [A]<br/>shipment, [selectedLineNbr]
-    activate FilterScope
-    
-    Note over FilterScope: [A] Filter is now ACTIVE<br/>AsyncLocal state set
-    
-    Service->>Service: CreateSingleRowPrintContext() [B]
-    
-    Note over Service: [B] Internally calls ViewUtils.ViewSelect()<br/>WHILE filter is active
-    
-    Service->>FilterScope: ViewUtils queries:<br/>Does package match filter?
-    FilterScope->>FilterScope: Matches() [A]<br/>Check shipment, lineNbr
-    FilterScope-->>Service: YES - include only<br/>this package
-    
-    Note over Service: [B] Scriban context now contains<br/>Packages = [selected package only]
-    
-    Service->>Asgard: PrintLabels(labelContext) [B]
+    deactivate FileD
+
+    Note over FileB: [B] Scriban context now contains<br/>Packages = [selected package only]
+
+    FileB->>Asgard: PrintLabels(labelContext) [B]
     activate Asgard
-    
-    Asgard->>Asgard: Render template<br/>using context
+
+    Asgard->>Asgard: Render template
     Asgard->>Asgard: Resolve Packages.UsrTCUCC128<br/>(correct barcode!)
     Asgard->>Asgard: Generate ZPL
     Asgard->>Asgard: Send to PrintNode API
-    
-    Asgard-->>Service: PrintResults<br/>(NbLabels=1)
-    deactivate Asgard
-    
-    Note over Service: About to exit using block<br/>DEACTIVATE FILTER
-    
-    Service->>FilterScope: Dispose() [A]
-    deactivate FilterScope
-    
-    Note over FilterScope: [A] Filter is now OFF<br/>AsyncLocal state cleared
-    
-    Service-->>LongOp: Return success [B]
-    deactivate Service
-    
-    LongOp-->>AsgardExt: PXLongOperation complete
-    deactivate LongOp
-    
-    AsgardExt-->>User: Popup: Label printed! [C]
-    deactivate AsgardExt
 
-    Note over User,Asgard: Result: Correct barcode printed<br/>Filter scope cleaned up<br/>System ready for next operation
+    Asgard-->>FileB: PrintResults (NbLabels=1) [B]
+    deactivate Asgard
+
+    Note over FileB: [B] about to exit using block<br/>DEACTIVATE FILTER
+
+    FileB->>FileA: Dispose() [B→A]
+    deactivate FileA
+
+    Note over FileA: [A] Filter now OFF<br/>AsyncLocal state cleared
+
+    FileB-->>FileC: Return success [B→C]
+    deactivate FileB
+
+    alt Scan Trigger Path
+        FileC-->>FileE: Complete [C→E]
+        deactivate FileE
+        Note over FileE: [E] RowPersisted complete
+    else Button Path
+        FileC->>FileC: Return to UI [C]
+        Note over FileC: [C] show popup
+    end
+
+    deactivate FileC
+
+    Note over UserAction,Asgard: RESULT: Correct barcode printed ✅<br/>Filter scope cleaned up ✅<br/>System ready for next operation ✅
 ```
 
 ---
 
 ## **File Legend**
 
-| Letter | Filename | Purpose |
-|--------|----------|---------|
-| **[A]** | `ALPackagesFilterScope.cs` | Thread-safe filter state management using AsyncLocal |
-| **[B]** | `AsgardLabelService.cs` | Business logic for validation, model resolution, and print orchestration |
-| **[C]** | `SOShipmentEntry_AsgardExt.cs` | PXGraphExtension that provides the Print button action and delegates to service |
-| **[D]** | `SOShipmentEntry_ALPackagesFilterExt.cs` | PXGraphExtension that intercepts the ALPackages view and applies filtering |
-| **[E]** | `SOShipmentEntry_ScanTriggerExt.cs` | PXGraphExtension that triggers printing when a package is confirmed (RowPersisted) |
+| Letter | Filename | Role |
+|--------|----------|------|
+| **[A]** | `ALPackagesFilterScope.cs` | Thread-safe filter state management using AsyncLocal. Provides Activate() and Matches() to control which packages are visible to views. |
+| **[B]** | `AsgardLabelService.cs` | Business logic orchestrator. Validates shipment/model, **activates filter scope**, creates print context, calls Asgard. The strategic decision-maker. |
+| **[C]** | `SOShipmentEntry_AsgardExt.cs` | PXGraphExtension providing the Print button UI action and PrintForPackage() method. Entry point for BOTH button and scan flows. Handles fresh graph creation and PXLongOperation. |
+| **[D]** | `SOShipmentEntry_ALPackagesFilterExt.cs` | PXGraphExtension that silently intercepts ALPackages view queries and applies filtering based on active [A] scope. Called transparently by Asgard's ViewUtils.ViewSelect(). |
+| **[E]** | `SOShipmentEntry_ScanTriggerExt.cs` | PXGraphExtension that detects when a package is confirmed (RowPersisted event). Creates fresh graph and delegates to [C].PrintForPackage(). Scan-trigger entry point only. |
 
 ---
 
-## **How to Read This Diagram**
+## **How This Diagram Works**
 
-1. **Look at the legend** to identify which file each component comes from
-2. **Follow the vertical lines** (lifelines) to see which component is active at each moment
-3. **Follow the arrows** to see method calls flowing between components
-4. **Read the note boxes** for key moments and state changes
-5. **Letter annotations [A], [B], [C]** show which file is responsible for each action
+### **Two Possible Entry Points (Both Converge at [C])**
 
----
+1. **Button Click Path:**
+   - User clicks "Print Asgard Label" button
+   - Triggers [C].PrintForPackage() directly
+   - [C] creates fresh graph and PXLongOperation
 
-## **File Responsibilities**
+2. **Scan/Confirmation Path:**
+   - Package is confirmed in WMS Pack Mode
+   - [E] RowPersisted event fires
+   - [E] creates fresh graph and calls [C].PrintForPackage() via FindImplementation
+   - Both paths now identical
 
-### **[A] ALPackagesFilterScope.cs**
-- Manages the active filter state
-- `Activate()` — Sets up the filter before print operations
-- `Matches()` — Checks if a package matches the current filter
-- `Dispose()` — Cleans up the filter when the operation ends
-- **Key pattern**: Uses `AsyncLocal<>` for thread safety
+### **The Core Flow (Identical for Both Paths)**
 
-### **[B] AsgardLabelService.cs**
-- Validates the shipment and package
-- Resolves which label model to use
-- **Activates the filter scope** before creating the print context
-- Passes the filtered context to Asgard for rendering
-- **Key insight**: The filter must be active BEFORE context creation
+1. **[C] Orchestrates** — Validates shipment, gets package, creates service
+2. **[C] Creates [B]** — Hands off to business logic layer
+3. **[B] Validates** — Checks shipment and model validity
+4. **[B] Activates [A]** — **CRITICAL MOMENT** — Establishes filter state
+5. **[B] Creates Context** — When Asgard queries views internally, [D] intercepts and filters
+6. **[D] Queries [A]** — Silent interception: "Does this package match?"
+7. **[A] Returns Match** — Yes/No decision controls what [D] yields
+8. **[B] Passes to Asgard** — Template context now populated with correct package data
+9. **Asgard Renders** — Uses filtered context → correct barcode prints
+10. **[B] Deactivates [A]** — **CLEANUP** — Filter scope disposed, system returns to normal
 
-### **[C] SOShipmentEntry_AsgardExt.cs**
-- Provides the "Print Asgard Label" button
-- `PrintForPackage()` method is the entry point
-- Wraps the print operation in a `PXLongOperation` for background execution
-- Creates a fresh graph instance to isolate the operation
-- Delegates to `AsgardLabelService` for the actual work
+### **Why the Filter Works**
 
-### **[D] SOShipmentEntry_ALPackagesFilterExt.cs**
-- Extends the SOShipmentEntry graph
-- Replaces the `ALPackages` view's delegate with a filtered version
-- `FilteredALPackages()` checks if each package matches the active filter
-- **Called transparently** by Asgard's `ViewUtils.ViewSelect()`
-- **Not explicitly called** in the main flow, but silently intercepts queries
+- **[A]** is activated BEFORE [B] creates the print context
+- **[D]** silently checks [A]'s state when views are queried
+- When [A] is active and matches the selected package, only that package is yielded
+- The Scriban context is populated with the filtered data
+- Template renders with correct barcode
+- No manual Packages collection modification needed
 
-### **[E] SOShipmentEntry_ScanTriggerExt.cs**
-- **Not shown in this diagram** because it's not part of the button-click flow
-- Provides automatic printing when a package is confirmed (scanned)
-- `RowPersisted<SOPackageDetail>()` event handler
-- Creates its own `PXLongOperation` and calls `PrintForPackage()` on a fresh graph
+### **Why [D] is "Silent"**
 
----
+- [D] is never explicitly called in this diagram
+- It's automatically invoked because Asgard's `ViewUtils.ViewSelect()` queries the graph's views
+- [D]'s `FilteredALPackages()` delegate intercepts that query
+- This is the elegance: **transparent filtering without modifying the calling code**
 
-## **Key Points Illustrated**
+### **Why Two Entry Points Converge**
 
-1. **Filter Activation (Critical)**
-   - [B] activates [A] BEFORE creating the context
-   - This ensures [A]'s `Matches()` is called while views are being queried
-   - Result: Only the selected package is included in the Scriban context
+Both [E] and button-click paths result in the same outcome:
+- Fresh graph created
+- [C].PrintForPackage() called with selected package LineNbr
+- Everything else is identical
 
-2. **The Silent Interception (Critical)**
-   - [D] is never explicitly called in this flow
-   - But it silently intercepts when Asgard's `ViewUtils.ViewSelect()` queries the graph
-   - This is the mechanism that makes the filtering work transparently
-
-3. **Filter Cleanup (Safety)**
-   - [A]'s `Dispose()` is guaranteed to be called via the `using` statement
-   - Restores the system to normal operation
-   - Safe even if exceptions occur
-
-4. **Thread Safety**
-   - [A] uses `AsyncLocal<>` so each operation's filter is isolated
-   - Multiple users can print labels simultaneously without interfering
-
-5. **Single Responsibility**
-   - [B] orchestrates but doesn't do the filtering
-   - [A] does the filtering but doesn't know about printing
-   - [C] provides the UI but delegates to [B]
-   - [D] provides the interception point but is silent
-   - [E] handles the scan/confirmation flow separately
+This convergence is intentional: **[C] is the single source of truth for print logic**. Both UI and scan automation delegate to it.
 
 ---
 
-## **Flow Summary**
+## **Key Architectural Insights**
 
-```
-User clicks button [C]
-    ↓
-PrintForPackage() [C] validates and creates fresh graph
-    ↓
-Calls AsgardLabelService [B]
-    ↓
-Service validates and resolves model [B]
-    ↓
-Service activates filter [A] ← CRITICAL MOMENT
-    ↓
-Service creates context [B] (internally queries views)
-    ↓
-Filtered view delegate [D] is called silently
-    ↓
-Matches() [A] checks and returns selected package only
-    ↓
-Context is populated with correct package data [B]
-    ↓
-Service calls Asgard to render and print
-    ↓
-Asgard uses filtered context → correct barcode prints
-    ↓
-Service deactivates filter [A] ← CLEANUP
-    ↓
-Filter is cleaned up, system returns to normal
-    ↓
-User sees success popup [C]
-```
+### **Single Responsibility**
+- **[A]**: Just manage state (filter on/off)
+- **[B]**: Just do validation & orchestration
+- **[C]**: Just handle UI and graph lifecycle
+- **[D]**: Just intercept and delegate to [A]
+- **[E]**: Just detect and delegate to [C]
+
+### **Thread Safety**
+- [A] uses `AsyncLocal<>` so each async operation has isolated filter state
+- Multiple users printing simultaneously = no cross-contamination
+
+### **Cleanup Guarantee**
+- [B] wraps filter in `using` block
+- [A]'s `Dispose()` guaranteed to be called
+- Even if exception occurs, filter is cleaned up
+- System returns to normal operation
+
+### **Transparency**
+- [D] doesn't know about [A] at design time
+- At runtime, [D] queries [A] to make filtering decisions
+- No explicit coupling; just a query-time lookup
+
+### **Reusability**
+- Button action [C] reuses same PrintForPackage() logic
+- Scan trigger [E] reuses same PrintForPackage() logic
+- No code duplication
+- Changes to print logic only need one place (PrintForPackage)
 
 ---
 
-## **Why This Design Works**
+## **Reading the Diagram: Step by Step**
 
-The elegance of this solution is that:
+1. **Start at the top** — Two possible paths (button vs scan)
+2. **Both paths lead to [C]** — Convergence point
+3. **Follow [C] → [B]** — Service creation and delegation
+4. **Watch [B] activate [A]** — The critical filter activation moment
+5. **See [B] → [D]** — Silent view query interception
+6. **Watch [D] → [A]** — Filter check (does package match?)
+7. **Watch [B] → Asgard** — Passing filtered context
+8. **See Asgard render** — Using correct barcode from context
+9. **Watch [B] deactivate [A]** — Cleanup/safety moment
+10. **Result** — Correct barcode printed, filter cleaned up
 
-1. **[A] provides a simple, thread-safe mechanism** for maintaining a global filter state
-2. **[B] uses that mechanism** to ensure the context is created with filtered data
-3. **[D] silently respects that mechanism** by delegating to it without needing explicit code
-4. **[C] is blissfully unaware** of the filtering; it just calls the service
-5. **[E] can reuse the same logic** for scan-triggered printing
+---
 
-All five files work together seamlessly, each with a clear responsibility and no circular dependencies.
+## **Common Questions Answered by This Diagram**
+
+**Q: Why does [E] call [C]?**
+A: Both button and scan paths need identical logic. [C] is the single place where that logic lives. [E] creates a fresh graph and delegates to it.
+
+**Q: Why doesn't [B] call [E]?**
+A: [B] doesn't know about [E]. [E] is an event handler, not part of the business logic. [E] just detects and delegates.
+
+**Q: Why doesn't [B] call [D]?**
+A: [B] doesn't explicitly call [D]. When [B] calls `ViewUtils.ViewSelect()`, Asgard internally queries the graph's views, and [D] intercepts transparently.
+
+**Q: What if the filter isn't activated?**
+A: [A]'s `Matches()` returns false for all packages. [D] yields nothing. Context is empty. Asgard has no data to render. This prevents printing the wrong barcode.
+
+**Q: What if [B] crashes before deactivating [A]?**
+A: The `using` block ensures [A]'s `Dispose()` is called (C# finally block behavior). Filter is cleaned up even on exception.
+
+**Q: Can [C] and [E] both run at the same time?**
+A: Yes! [A] uses `AsyncLocal<>` so each async operation (each PXLongOperation) gets its own filter state. No interference.
+
+---
+
+## **Summary**
+
+This **single comprehensive diagram** shows:
+- ✅ How files interact with each other
+- ✅ The convergence of two entry points at [C]
+- ✅ The critical filter activation/deactivation moments
+- ✅ The silent interception by [D]
+- ✅ The thread-safe mechanism of [A]
+- ✅ The orchestration logic of [B]
+- ✅ The single source of truth in [C]
+
+All five files are present, their interactions are clear, and the architecture's elegance is visible: **clean separation of concerns, transparent filtering, and reliable cleanup**.
