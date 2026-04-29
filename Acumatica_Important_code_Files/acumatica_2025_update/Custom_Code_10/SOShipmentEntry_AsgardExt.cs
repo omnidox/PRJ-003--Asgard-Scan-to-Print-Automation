@@ -115,12 +115,21 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 graph.Document.Current = shipmentInLongOp;
 
-                var asgardService = new AsgardLabelService(graph, _labelGenerator);
+                // ✅ CRITICAL REFACTOR: Delegate to AsgardLabelService
+                // The service handles:
+                // 1. Filter scope activation (ALPackagesFilterScope)
+                // 2. Native CreatePrintContext() call (not CreateSingleRowPrintContext)
+                // 3. Proper PXResult row structure from ALiStarPackages view
+                
+                var service = new AsgardLabelService(graph, _labelGenerator);
 
+                // ✅ CRITICAL: Resolve model explicitly BEFORE delegating
+                // The model's BasedOnView determines the row structure
+                // Passing null would make service guess, causing row structure mismatch
                 const bool preferBoxPrintModel = false;
                 const string fallbackModelName = "iStar-8A-Packing for Boscov";
 
-                Guid? modelId = asgardService.ResolveModelId(fallbackModelName, preferBoxPrintModel);
+                Guid? modelId = service.ResolveModelId(fallbackModelName, preferBoxPrintModel);
 
                 if (modelId == null || modelId == Guid.Empty)
                 {
@@ -129,45 +138,32 @@ namespace AA.Objects.AL.Integration.PerPackage
                         "Please verify ALSetupSlot.BoxPrintModelID or the fallback model name.");
                 }
 
-                ALModel resolvedModel = asgardService.GetModelById(modelId);
-                asgardService.TraceModelDiagnostics(resolvedModel, modelId, shipmentInLongOp);
+                PXTrace.WriteInformation("[LONGOP] Delegating to AsgardLabelService with resolved modelId={0}", modelId);
 
-                // ✅ Fetch the selected package row
-                SOPackageDetailEx selectedPackage = PXSelect<
-                    SOPackageDetailEx,
-                    Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
-                    And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
-                    .Select(graph, shipmentNbr, packageLineNbr).FirstOrDefault();
-
-                if (selectedPackage == null)
+                // ✅ CRITICAL: Activate filter scope BEFORE delegating to service
+                // This ensures the filtered view is active when the service calls CreatePrintContext()
+                // The service will call Asgard, which queries ALiStarPackages, which will return only the selected package
+                using (ALPackagesFilterScope.Activate(shipmentNbr, new[] { packageLineNbr }))
                 {
-                    throw new PXException($"Package line {packageLineNbr} not found in shipment {shipmentNbr}");
+                    PXTrace.WriteInformation("[LONGOP] ALPackagesFilterScope activated - service will run under active filter");
+
+                    PrintResults results = service.PrintSelectedPackageUsingNativeContext(
+                        shipmentInLongOp,
+                        modelId,  // ✅ Pass the explicitly resolved modelId
+                        packageLineNbr,
+                        adapter);
+
+                    if (results == null)
+                        throw new PXException("Label printing returned no results.");
+
+                    if (results.NbLabels <= 0)
+                    {
+                        throw new PXException(
+                            "No labels were generated. Please verify the selected package is valid and the selected label model is configured correctly.");
+                    }
+
+                    PXTrace.WriteInformation("[LONGOP] Successfully printed {0} label(s) for package line {1}", results.NbLabels, packageLineNbr);
                 }
-
-                PXTrace.WriteInformation("[LONGOP] Printing package {0} using CreateSingleRowPrintContext", packageLineNbr);
-
-                // ✅ Use Asgard's native single-row context — matches ALBoxPrintSOShipmentEntryExt pattern exactly.
-                // IsAlwaysPrint=true bypasses CheckLineDoPrint, IsSilent=true suppresses the completion popup.
-                // SingleRow limits the resultset to the one selected package row.
-                AcuLabelContext labelContext = AcuLabelContext.CreateSingleRowPrintContext(
-                    graph.GetType(),
-                    shipmentInLongOp,
-                    selectedPackage,
-                    modelId,
-                    shipmentInLongOp.CustomerID);
-
-                PrintResults results = _labelGenerator.PrintLabels(labelContext);
-
-                if (results == null)
-                    throw new PXException("Label printing returned no results.");
-
-                if (results.NbLabels <= 0)
-                {
-                    throw new PXException(
-                        "No labels were generated. Please verify the selected package is valid and the selected label model is configured correctly.");
-                }
-
-                PXTrace.WriteInformation("[LONGOP] Successfully printed {0} label(s) for package line {1}", results.NbLabels, packageLineNbr);
             });
         }
 
