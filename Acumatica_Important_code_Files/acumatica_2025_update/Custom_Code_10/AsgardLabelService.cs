@@ -179,11 +179,11 @@ namespace AA.Objects.AL.Integration.PerPackage
             try
             {
                 // Get the model to determine its BasedOnView
-                ALModel model = GetModelById(modelId);
-                if (model != null)
+                ALModel resolvedModel = GetModelById(modelId);
+                if (resolvedModel != null)
                 {
-                    basedOnViewName = model.BasedOnView;
-                    PXTrace.WriteInformation("[SERVICE] Model {0} is based on view: {1}", model.Name, basedOnViewName ?? "null");
+                    basedOnViewName = resolvedModel.BasedOnView;
+                    PXTrace.WriteInformation("[SERVICE] Model {0} is based on view: {1}", resolvedModel.Name, basedOnViewName ?? "null");
                 }
                 
                 if (string.IsNullOrWhiteSpace(basedOnViewName))
@@ -200,7 +200,7 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             // ✅ Activate filter scope BEFORE creating print context
             // This ensures the filtered view is active when Asgard queries it
-            using (ALPackagesFilterScope.Activate(_graph, shipment.ShipmentNbr, selectedPackageLineNbr.Value))
+            using (ALPackagesFilterScope.Activate(shipment.ShipmentNbr, new[] { selectedPackageLineNbr }))
             {
                 PXTrace.WriteInformation("[SERVICE] ALPackagesFilterScope activated for package line {0}", selectedPackageLineNbr);
 
