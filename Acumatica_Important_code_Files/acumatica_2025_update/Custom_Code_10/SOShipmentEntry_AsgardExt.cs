@@ -46,27 +46,27 @@ namespace AA.Objects.AL.Integration.PerPackage
             if (shipment == null)
                 throw new PXException("No shipment is currently selected.");
 
+            // ✅ CRITICAL: Capture selected package BEFORE PressSave()
+            // PressSave can disturb Base.Packages.Current, so we must capture it first
+            SOPackageDetail currentSelected = Base.Packages.Current;
+            int? selectedBeforeSave = selectedPackageLineNbr ?? currentSelected?.LineNbr;
+
+            if (selectedBeforeSave == null)
+                throw new PXException(
+                    "No package is selected. Please select a package row and try again.");
+
             if (Base.IsDirty)
             {
                 Base.Actions.PressSave();
                 shipment = Base.Document.Current;
             }
 
-            // ✅ NEW: If no package specified, get the currently selected row
-            if (selectedPackageLineNbr == null)
+            // ✅ Use the package captured BEFORE the save
+            selectedPackageLineNbr = selectedBeforeSave;
+
+            if (selectedPackageLineNbr != null)
             {
-                SOPackageDetail currentSelected = Base.Packages.Current;
-                if (currentSelected?.LineNbr == null)
-                {
-                    throw new PXException(
-                        "No package is selected. Please select a package row and try again.");
-                }
-                selectedPackageLineNbr = currentSelected.LineNbr;
-                PXTrace.WriteInformation("[PRINT] Using currently selected package: {0}", selectedPackageLineNbr);
-            }
-            else
-            {
-                PXTrace.WriteInformation("[PRINT] Using explicitly passed package: {0}", selectedPackageLineNbr);
+                PXTrace.WriteInformation("[PRINT] Using selected package: {0}", selectedPackageLineNbr);
             }
 
             string shipmentNbr = shipment.ShipmentNbr;
