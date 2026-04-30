@@ -120,6 +120,91 @@ namespace AA.Objects.AL.Integration.PerPackage
                 $"Selected-package native print diagnostics: Shipment={shipmentNbr}, ModelID={modelId}, ModelName={modelName}, ScreenID={screenId}, BasedOnView={basedOnView}, GraphType={_graph.GetType().FullName}");
         }
 
+        /// <summary>
+        /// Helper method: Clear UsrALPrintLabel on ALL package rows for the shipment.
+        /// Used to ensure a clean state before selecting the specific package to print.
+        /// NOTE: Does NOT save - caller must save when both clear and set operations are complete.
+        /// </summary>
+        private void ClearAllPackagePrintFlags(string shipmentNbr)
+        {
+            try
+            {
+                PXTrace.WriteInformation("[CHECKBOX] Clearing UsrALPrintLabel on all packages for shipment {0}", shipmentNbr);
+                
+                var allPackages = PXSelect<
+                    SOPackageDetailEx,
+                    Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
+                    .Select(_graph, shipmentNbr);
+
+                int clearedCount = 0;
+                foreach (SOPackageDetailEx pkg in allPackages)
+                {
+                    try
+                    {
+                        // Use Acumatica-native cache method if possible
+                        _graph.Packages.Cache.SetValueExt(pkg, "UsrALPrintLabel", false);
+                        _graph.Packages.Cache.Update(pkg);
+                        clearedCount++;
+                    }
+                    catch (Exception setEx)
+                    {
+                        PXTrace.WriteInformation("[CHECKBOX] ⚠️ Error clearing UsrALPrintLabel on package line {0}: {1}", 
+                            pkg.LineNbr, setEx.Message);
+                    }
+                }
+
+                PXTrace.WriteInformation("[CHECKBOX] ✅ Cleared UsrALPrintLabel on {0} package rows", clearedCount);
+            }
+            catch (Exception ex)
+            {
+                PXTrace.WriteInformation("[CHECKBOX] ⚠️ Error in ClearAllPackagePrintFlags: {0}", ex.Message);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Helper method: Set UsrALPrintLabel = true ONLY on the selected package row.
+        /// All other rows are assumed to already be cleared by ClearAllPackagePrintFlags.
+        /// NOTE: Does NOT save - caller must save when both clear and set operations are complete.
+        /// </summary>
+        private void SetOnlySelectedPackagePrintFlag(string shipmentNbr, int? selectedPackageLineNbr)
+        {
+            if (selectedPackageLineNbr == null)
+            {
+                throw new PXException("Cannot set print flag: no package line number specified.");
+            }
+
+            try
+            {
+                PXTrace.WriteInformation("[CHECKBOX] Setting UsrALPrintLabel on selected package line {0} for shipment {1}", 
+                    selectedPackageLineNbr, shipmentNbr);
+
+                SOPackageDetailEx selectedPackage = PXSelect<
+                    SOPackageDetailEx,
+                    Where<
+                        SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
+                        And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
+                    .Select(_graph, shipmentNbr, selectedPackageLineNbr);
+
+                if (selectedPackage == null)
+                {
+                    throw new PXException(
+                        $"Package line {selectedPackageLineNbr} not found in shipment {shipmentNbr}.");
+                }
+
+                // Use Acumatica-native cache method if possible
+                _graph.Packages.Cache.SetValueExt(selectedPackage, "UsrALPrintLabel", true);
+                _graph.Packages.Cache.Update(selectedPackage);
+
+                PXTrace.WriteInformation("[CHECKBOX] ✅ Set UsrALPrintLabel=true on package line {0}", selectedPackageLineNbr);
+            }
+            catch (Exception ex)
+            {
+                PXTrace.WriteInformation("[CHECKBOX] ⚠️ Error in SetOnlySelectedPackagePrintFlag: {0}", ex.Message);
+                throw;
+            }
+        }
+
         public virtual PrintResults PrintSelectedPackageUsingNativeContext(
             SOShipment shipment,
             Guid? modelId,
@@ -196,84 +281,119 @@ namespace AA.Objects.AL.Integration.PerPackage
                 basedOnViewName = "ALPackages";
             }
 
-            // ✅ SINGLE SCOPE OWNERSHIP: Service activates and manages the filter scope
-            // This is the only place the filter is activated
-            using (ALPackagesFilterScope.Activate(shipment.ShipmentNbr, new[] { selectedPackageLineNbr }))
+            // ✅ CHECKBOX LOGIC: Manage UsrALPrintLabel + ALPackagesFilterScope + CreatePrintContext
+            // This try/finally ensures checkbox cleanup even if printing fails
+            try
             {
-                PXTrace.WriteInformation("[SERVICE] ALPackagesFilterScope activated for package line {0}", selectedPackageLineNbr);
+                // Step 1: Clear all package print flags
+                ClearAllPackagePrintFlags(shipment.ShipmentNbr);
 
-                // ✅ CRITICAL: Use native CreatePrintContext (not CreateSingleRowPrintContext)
-                // While filter scope is active, Asgard will query the filtered view and get the correct row structure
-                PXTrace.WriteInformation("[SERVICE] Calling CreatePrintContext with BasedOnView={0}, ModelID={1}", 
-                    basedOnViewName, modelId);
+                // Step 2: Set print flag ONLY on selected package
+                SetOnlySelectedPackagePrintFlag(shipment.ShipmentNbr, selectedPackageLineNbr);
 
-                AcuLabelContext printContext = AcuLabelContext.CreatePrintContext(
-                    _graph.GetType(),
-                    shipment,
-                    modelId,
-                    false,
-                    adapter);
+                // Step 3: Save once after both operations complete
+                _graph.Actions.PressSave();
+                PXTrace.WriteInformation("[CHECKBOX] ✅ Graph saved after setting print flags");
 
-                if (printContext == null)
-                    throw new PXException("CreatePrintContext returned null.");
-
-                string modelName = printContext.Model != null ? printContext.Model.Name : "<null>";
-                string printerName = printContext.Printer != null ? printContext.Printer.Name : "<null>";
-                PXTrace.WriteInformation("[SERVICE] CreatePrintContext succeeded. Model={0}, Printer={1}", 
-                    modelName, printerName);
-
-                if (printContext.Model == null)
-                    throw new PXException("printContext.Model is null.");
-
-                if (printContext.Row == null)
-                    throw new PXException("printContext.Row is null.");
-
-                if (printContext.Printer == null)
+                // Step 4: Activate filter scope for the selected package
+                // ✅ CRITICAL: Use selectedPackageLineNbr.Value for proper type (int, not int?)
+                using (ALPackagesFilterScope.Activate(shipment.ShipmentNbr, new[] { selectedPackageLineNbr.Value }))
                 {
-                    throw new PXException(
-                        "No printer is configured for this model. Please configure a printer for the model or printer override as needed.");
-                }
+                    PXTrace.WriteInformation("[CHECKBOX] ✅ ALPackagesFilterScope activated for package line {0}", selectedPackageLineNbr);
 
-                PXTrace.WriteInformation(
-                    $"[SERVICE] Print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
+                    // ✅ CRITICAL: Use native CreatePrintContext (not CreateSingleRowPrintContext)
+                    // While filter scope is active, Asgard will query the filtered view and get the correct row structure
+                    // The UsrALPrintLabel flag is set above, so Asgard's NbCopies logic will see it checked
+                    PXTrace.WriteInformation("[CHECKBOX] ✅ Calling CreatePrintContext with BasedOnView={0}, ModelID={1}", 
+                        basedOnViewName, modelId);
 
-                // ✅ Call PrintLabels while filter scope is active
-                // Filter ensures Asgard gets only the selected package row
-                try
-                {
-                    PrintResults results = _labelGenerator.PrintLabels(printContext);
-                    
-                    if (results == null)
-                        throw new PXException("PrintLabels returned null.");
+                    AcuLabelContext printContext = AcuLabelContext.CreatePrintContext(
+                        _graph.GetType(),
+                        shipment,
+                        modelId,
+                        false,
+                        adapter);
 
-                    PXTrace.WriteInformation("[RESULT] NbLabels={0} for package {1}", results.NbLabels, selectedPackageLineNbr);
-                    
-                    if (results.NbLabels == 1)
+                    if (printContext == null)
+                        throw new PXException("CreatePrintContext returned null.");
+
+                    string modelName = printContext.Model != null ? printContext.Model.Name : "<null>";
+                    string printerName = printContext.Printer != null ? printContext.Printer.Name : "<null>";
+                    PXTrace.WriteInformation("[CHECKBOX] ✅ CreatePrintContext succeeded. Model={0}, Printer={1}", 
+                        modelName, printerName);
+
+                    if (printContext.Model == null)
+                        throw new PXException("printContext.Model is null.");
+
+                    if (printContext.Row == null)
+                        throw new PXException("printContext.Row is null.");
+
+                    if (printContext.Printer == null)
                     {
-                        PXTrace.WriteInformation("[RESULT] ✅ SUCCESS: Single label printed for package line {0}", selectedPackageLineNbr);
-                    }
-                    else if (results.NbLabels == 0)
-                    {
-                        PXTrace.WriteInformation("[RESULT] ⚠️ WARNING: No labels generated for package line {0}", selectedPackageLineNbr);
-                    }
-                    else
-                    {
-                        PXTrace.WriteInformation("[RESULT] ⚠️ UNEXPECTED: {0} labels printed (expected 1) for package line {1}", 
-                            results.NbLabels, selectedPackageLineNbr);
+                        throw new PXException(
+                            "No printer is configured for this model. Please configure a printer for the model or printer override as needed.");
                     }
 
                     PXTrace.WriteInformation(
-                        $"[SERVICE] Print completed: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
+                        $"[CHECKBOX] ✅ Print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
 
-                    return results;
-                }
-                catch (Exception printEx)
+                    // ✅ Call PrintLabels while filter scope is active AND checkbox is set
+                    // Filter ensures Asgard gets only the selected package row
+                    // Checkbox ensures Asgard's NbCopies logic sees the row as eligible
+                    try
+                    {
+                        PXTrace.WriteInformation("[CHECKBOX] ✅ Calling PrintLabels...");
+                        PrintResults results = _labelGenerator.PrintLabels(printContext);
+                        
+                        if (results == null)
+                            throw new PXException("PrintLabels returned null.");
+
+                        PXTrace.WriteInformation("[CHECKBOX] ✅ PrintLabels returned NbLabels={0} for package {1}", results.NbLabels, selectedPackageLineNbr);
+                        
+                        if (results.NbLabels == 1)
+                        {
+                            PXTrace.WriteInformation("[RESULT] ✅ SUCCESS: Single label printed for package line {0}", selectedPackageLineNbr);
+                        }
+                        else if (results.NbLabels == 0)
+                        {
+                            PXTrace.WriteInformation("[RESULT] ⚠️ WARNING: No labels generated for package line {0}", selectedPackageLineNbr);
+                        }
+                        else
+                        {
+                            PXTrace.WriteInformation("[RESULT] ⚠️ UNEXPECTED: {0} labels printed (expected 1) for package line {1}", 
+                                results.NbLabels, selectedPackageLineNbr);
+                        }
+
+                        PXTrace.WriteInformation(
+                            $"[SERVICE] Print completed: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
+
+                        return results;
+                    }
+                    catch (Exception printEx)
+                    {
+                        PXTrace.WriteInformation("[SERVICE] PrintLabels exception: {0}", printEx.GetType().FullName);
+                        PXTrace.WriteInformation("[SERVICE] Exception message: {0}", printEx.Message);
+                        throw;
+                    }
+                }  // End of ALPackagesFilterScope using block
+            }
+            finally
+            {
+                // ✅ CRITICAL: Clear all package print flags in finally block
+                // This runs even if printing fails, ensuring clean state
+                PXTrace.WriteInformation("[CHECKBOX] Finally block: Clearing all package print flags...");
+                try
                 {
-                    PXTrace.WriteInformation("[SERVICE] PrintLabels exception: {0}", printEx.GetType().FullName);
-                    PXTrace.WriteInformation("[SERVICE] Exception message: {0}", printEx.Message);
-                    throw;
+                    ClearAllPackagePrintFlags(shipment.ShipmentNbr);
+                    _graph.Actions.PressSave();
+                    PXTrace.WriteInformation("[CHECKBOX] ✅ Finally: All package flags cleared and saved");
                 }
-            }  // End of ALPackagesFilterScope using block
+                catch (Exception cleanupEx)
+                {
+                    PXTrace.WriteInformation("[CHECKBOX] ⚠️ Error during finally cleanup: {0}", cleanupEx.Message);
+                    // Don't re-throw from finally - let the original exception propagate if there was one
+                }
+            }
         }
 
         [Obsolete("Use PrintSelectedPackageUsingNativeContext instead")]
