@@ -115,7 +115,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     // - Isolates print logic from WMS state machine
                     // - Uses fresh SOShipmentEntry graph for clean context
                     // - No race conditions or nested operation conflicts
-                    PXLongOperation.StartOperation(Basis, delegate()
+                    PXLongOperation.StartOperation(Base, delegate()
                     {
                         PXTrace.WriteInformation(
                             "[SCAN-HOOK-LONGOP] Long operation started for print: Shipment={0}, Package={1}",
@@ -155,7 +155,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     PXTrace.WriteError("[SCAN-HOOK] Stack: {0}", printEx.StackTrace);
                     // Don't re-throw - package was already confirmed successfully
                     // Print failure shouldn't fail the confirmation
-                    Basis.ReportError("Asgard label print failed: {0}", printEx.Message);
+                    Base.ReportError("Asgard label print failed: {0}", printEx.Message);
                 }
             }
             else
