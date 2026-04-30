@@ -155,7 +155,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     PXTrace.WriteError("[SCAN-HOOK] Stack: {0}", printEx.StackTrace);
                     // Don't re-throw - package was already confirmed successfully
                     // Print failure shouldn't fail the confirmation
-                    Base.ReportError("Asgard label print failed: {0}", printEx.Message);
+                    // Note: ReportError not available in WMS context, trace logs the error instead
                 }
             }
             else
