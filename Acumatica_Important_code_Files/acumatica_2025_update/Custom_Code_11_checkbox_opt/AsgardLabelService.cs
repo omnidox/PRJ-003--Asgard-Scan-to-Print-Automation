@@ -296,8 +296,8 @@ namespace AA.Objects.AL.Integration.PerPackage
                 PXTrace.WriteInformation("[CHECKBOX] ✅ Graph saved after setting print flags");
 
                 // Step 4: Activate filter scope for the selected package
-                // ✅ CRITICAL: Use selectedPackageLineNbr.Value for proper type (int, not int?)
-                using (ALPackagesFilterScope.Activate(shipment.ShipmentNbr, new[] { selectedPackageLineNbr.Value }))
+                // ✅ CRITICAL: Use int?[] to match Activate's signature: IEnumerable<int?>
+                using (ALPackagesFilterScope.Activate(shipment.ShipmentNbr, new int?[] { selectedPackageLineNbr }))
                 {
                     PXTrace.WriteInformation("[CHECKBOX] ✅ ALPackagesFilterScope activated for package line {0}", selectedPackageLineNbr);
 
