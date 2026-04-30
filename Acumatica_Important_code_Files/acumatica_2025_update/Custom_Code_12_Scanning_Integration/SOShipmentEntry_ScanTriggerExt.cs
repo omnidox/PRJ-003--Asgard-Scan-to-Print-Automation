@@ -4,58 +4,47 @@ using PX.Objects.SO;
 
 namespace AA.Objects.AL.Integration.PerPackage
 {
+    /// <summary>
+    /// ========================================================================
+    /// OLD SCAN TRIGGER - DISABLED (PHASE 1 ONLY)
+    /// ========================================================================
+    /// 
+    /// This extension is INTENTIONALLY DISABLED.
+    /// 
+    /// WHY DISABLED:
+    /// - RowPersisted fires during the Persist() cycle
+    /// - It was causing "The previous operation has not been completed yet" errors
+    /// - Created race conditions with button print operations
+    /// 
+    /// REPLACEMENT:
+    /// The scan hook has been moved to WMS Pack Mode:
+    /// → PackMode_CompleteState_AsgardExt.cs
+    /// → Hooks into SettleAndConfirmPackage (the actual confirmation method)
+    /// → Runs after confirmation is complete, not during persistence
+    /// → No race conditions, no nested operations
+    /// 
+    /// FUTURE REFERENCE:
+    /// If you need to re-examine RowPersisted logic, see the commented code below.
+    /// But DO NOT use RowPersisted for scan integration - use the WMS hook instead.
+    /// </summary>
     public class SOShipmentEntry_ScanTriggerExt : PXGraphExtension<SOShipmentEntry>
     {
-        public static bool IsActive() => true;
+        public static bool IsActive() => false;  // ✅ DISABLED - using WMS hook instead
 
-        /// <summary>
-        /// ========================================================================
-        /// TEMPORARY DISABLE NOTICE - PHASE 1 TESTING
-        /// ========================================================================
-        /// 
-        /// This scan trigger is DISABLED during testing phase.
-        /// 
-        /// REASON FOR DISABLE:
-        /// - RowPersisted fires during the Persist() cycle
-        /// - When the user clicks "Print Asgard Label" button, PrintForPackage() calls PressSave()
-        /// - PressSave() triggers Persist() → fires RowPersisted events
-        /// - This creates a RACE CONDITION: both button print and scan trigger try to start
-        ///   PXLongOperation simultaneously
-        /// - Result: Acumatica throws "Error: The previous operation has not been completed yet"
-        /// 
-        /// ISSUES IDENTIFIED:
-        /// Issue #1: Missing parameter in original code (line ~72)
-        ///   WRONG: asgardExt.PrintForPackage(adapter);
-        ///   RIGHT: asgardExt.PrintForPackage(adapter, packageLineNbr);
-        /// 
-        /// Issue #2: PXLongOperation.StartOperation called from RowPersisted
-        ///   This happens during the Persist cycle, causing race with button action
-        /// 
-        /// TESTING ROADMAP:
-        /// Phase 1: Test button printing only (this trigger disabled)
-        ///   - Verify "Print Asgard Label" button works in isolation
-        ///   - Confirm labels print correctly for selected package
-        ///   - NO concurrent operation errors
-        /// 
-        /// Phase 2: Re-enable scan trigger (AFTER button path is solid)
-        ///   - FIX: Pass packageLineNbr parameter to PrintForPackage()
-        ///   - CHANGE: Remove PXLongOperation from RowPersisted
-        ///   - NEW APPROACH: Call PrintForPackage directly OR defer the operation
-        ///   - Test: Confirm package triggers print without concurrent-operation errors
-        /// 
-        /// Phase 3: Production validation (if Phase 1+2 pass)
-        ///   - Load test and quality verification
-        /// ========================================================================
         protected virtual void _(Events.RowPersisted<SOPackageDetail> e)
         {
-            // DISABLED: Return early to skip scan trigger during Phase 1 testing
-            PXTrace.WriteInformation("[SCAN-TRIGGER] ⚠️ Scan trigger is DISABLED for Phase 1 testing. See code comments for roadmap.");
+            // DISABLED: This trigger is not used for Phase 2+
+            // See PackMode_CompleteState_AsgardExt.cs for the WMS scan hook
+            PXTrace.WriteInformation("[SCAN-TRIGGER] ℹ️ Old RowPersisted trigger is disabled. Using WMS hook instead.");
             return;
 
             /*
             // ============================================================================
-            // ORIGINAL CODE (DISABLED) - Will be refactored after button path works
+            // OLD CODE (DISABLED - Reference only)
             // ============================================================================
+            // This code is kept for historical reference only.
+            // DO NOT enable this - use the WMS hook instead.
+            // 
             // try
             // {
             //     PXTrace.WriteInformation("=== SCAN TRIGGER: RowPersisted<SOPackageDetail> event fired ===");
@@ -111,12 +100,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             //         adapter.Searches = new string[] { };
             //         adapter.Parameters = new object[] { };
             //
-            //         // ⚠️ ISSUE #1: Missing parameter below
-            //         // WRONG: asgardExt.PrintForPackage(adapter);
-            //         // RIGHT: asgardExt.PrintForPackage(adapter, packageLineNbr);
-            //         // This loses the packageLineNbr, causing "No package is selected" error
-            //         
-            //         asgardExt.PrintForPackage(adapter, packageLineNbr);  // ← CORRECTED FOR PHASE 2
+            //         asgardExt.PrintForPackage(adapter, packageLineNbr);
             //
             //         PXTrace.WriteInformation("[SUCCESS] PrintForPackage() completed");
             //     });

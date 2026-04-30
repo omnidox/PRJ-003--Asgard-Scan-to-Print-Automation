@@ -33,11 +33,15 @@ namespace AA.Objects.AL.Integration.PerPackage
         }
 
         /// <summary>
-        /// Core action method - called by BOTH button AND scan trigger
-        /// This is the single source of truth for print logic
-        ///
-        /// NEW: Accepts optional selectedPackageLineNbr parameter for row-selection printing
-        /// If null, prints the currently selected package in the grid
+        /// ========================================================================
+        /// LAYER 1: PrintForPackage - Button Entry Point
+        /// ========================================================================
+        /// 
+        /// Called ONLY by the "Print Asgard Label" button.
+        /// Validates current state and delegates to QueuePrintForPackage.
+        /// 
+        /// Accepts optional selectedPackageLineNbr for testing/scan integration.
+        /// If null, uses currently selected package from grid.
         /// </summary>
         public virtual void PrintForPackage(PXAdapter adapter, int? selectedPackageLineNbr = null)
         {
@@ -55,8 +59,8 @@ namespace AA.Objects.AL.Integration.PerPackage
                 throw new PXException(
                     "No package is selected. Please select a package row and try again.");
 
-            // ✅ NEW: Log all available information from the selected package
-            // This provides complete visibility into what fields are available during Phase 1 testing
+            // ✅ Log all available information from the selected package
+            // This provides complete visibility into what fields are available during testing
             if (currentSelected != null)
             {
                 PXTrace.WriteInformation("[PKG-ALL] === All Available Fields from SOPackageDetail ===");
@@ -100,65 +104,119 @@ namespace AA.Objects.AL.Integration.PerPackage
             string shipmentNbr = shipment.ShipmentNbr;
             int packageLineNbr = (int)selectedPackageLineNbr;
 
+            // ✅ Delegate to LAYER 2
+            QueuePrintForPackage(shipmentNbr, packageLineNbr);
+        }
+
+        /// <summary>
+        /// ========================================================================
+        /// LAYER 2: QueuePrintForPackage - UI-Safe Wrapper
+        /// ========================================================================
+        /// 
+        /// Called by:
+        /// - PrintForPackage (button UI layer)
+        /// - SettleAndConfirmPackage override (WMS scan hook)
+        /// 
+        /// Responsibility: Start one clean PXLongOperation that uses a fresh graph.
+        /// This is the boundary between UI/WMS context and the isolated print operation.
+        /// 
+        /// Does NOT start nested operations - each caller is responsible for its context.
+        /// </summary>
+        public virtual void QueuePrintForPackage(string shipmentNbr, int packageLineNbr)
+        {
+            PXTrace.WriteInformation("[QUEUE] QueuePrintForPackage called: Shipment={0}, Package={1}", 
+                shipmentNbr, packageLineNbr);
+
             PXLongOperation.StartOperation(Base, delegate()
             {
-                PXTrace.WriteInformation("[LONGOP] Creating fresh graph and reloading shipment {0}", shipmentNbr);
+                PXTrace.WriteInformation("[QUEUE] PXLongOperation started for shipment {0}", shipmentNbr);
 
-                SOShipmentEntry graph = PXGraph.CreateInstance<SOShipmentEntry>();
+                // ✅ LAYER 2→3 delegation
+                PrintForPackageCore(shipmentNbr, packageLineNbr);
 
-                SOShipment shipmentInLongOp = SOShipment.PK.Find(graph, shipmentNbr);
-                if (shipmentInLongOp == null)
-                {
-                    throw new PXException(
-                        $"Shipment '{shipmentNbr}' could not be reloaded inside the long operation.");
-                }
-
-                graph.Document.Current = shipmentInLongOp;
-
-                // ✅ CRITICAL REFACTOR: Delegate to AsgardLabelService
-                // The service handles:
-                // 1. Filter scope activation (ALPackagesFilterScope)
-                // 2. Native CreatePrintContext() call (not CreateSingleRowPrintContext)
-                // 3. Proper PXResult row structure from ALiStarPackages view
-                
-                var service = new AsgardLabelService(graph, _labelGenerator);
-
-                // ✅ CRITICAL: Resolve model explicitly BEFORE delegating
-                // The model's BasedOnView determines the row structure
-                // Passing null would make service guess, causing row structure mismatch
-                const bool preferBoxPrintModel = false;
-                const string fallbackModelName = "iStar-8A-Packing for Boscov";
-
-                Guid? modelId = service.ResolveModelId(fallbackModelName, preferBoxPrintModel);
-
-                if (modelId == null || modelId == Guid.Empty)
-                {
-                    throw new PXException(
-                        "Could not resolve an Asgard label model for selected-package native printing. " +
-                        "Please verify ALSetupSlot.BoxPrintModelID or the fallback model name.");
-                }
-
-                PXTrace.WriteInformation("[LONGOP] Delegating to AsgardLabelService with resolved modelId={0}", modelId);
-
-                // ✅ Service owns filter scope activation
-                // No outer wrapping needed here - service will activate ALPackagesFilterScope internally
-                PrintResults results = service.PrintSelectedPackageUsingNativeContext(
-                    shipmentInLongOp,
-                    modelId,  // ✅ Pass the explicitly resolved modelId
-                    packageLineNbr,
-                    adapter);
-
-                if (results == null)
-                    throw new PXException("Label printing returned no results.");
-
-                if (results.NbLabels <= 0)
-                {
-                    throw new PXException(
-                        "No labels were generated. Please verify the selected package is valid and the selected label model is configured correctly.");
-                }
-
-                PXTrace.WriteInformation("[LONGOP] Successfully printed {0} label(s) for package line {1}", results.NbLabels, packageLineNbr);
+                PXTrace.WriteInformation("[QUEUE] PXLongOperation completed for shipment {0}", shipmentNbr);
             });
+        }
+
+        /// <summary>
+        /// ========================================================================
+        /// LAYER 3: PrintForPackageCore - Core Shared Logic
+        /// ========================================================================
+        /// 
+        /// Called by:
+        /// - QueuePrintForPackage (from button via LAYER 2)
+        /// - Scan hook direct call (from WMS SettleAndConfirmPackage override)
+        /// 
+        /// Responsibility: 
+        /// - Create fresh SOShipmentEntry graph
+        /// - Resolve Asgard label model
+        /// - Delegate to AsgardLabelService
+        /// - Handle checkbox + filter scope + context + print
+        /// 
+        /// Assumes: Already inside PXLongOperation with isolated context
+        /// 
+        /// PUBLIC so that scan hook can call it directly from WMS context
+        /// </summary>
+        public virtual void PrintForPackageCore(string shipmentNbr, int packageLineNbr)
+        {
+            PXTrace.WriteInformation("[INTERNAL] PrintForPackageCore: Creating fresh graph for shipment {0}", 
+                shipmentNbr);
+
+            SOShipmentEntry graph = PXGraph.CreateInstance<SOShipmentEntry>();
+
+            SOShipment shipmentInLongOp = SOShipment.PK.Find(graph, shipmentNbr);
+            if (shipmentInLongOp == null)
+            {
+                throw new PXException(
+                    $"Shipment '{shipmentNbr}' could not be reloaded inside the print operation.");
+            }
+
+            graph.Document.Current = shipmentInLongOp;
+
+            // ✅ CRITICAL: Delegate to AsgardLabelService
+            // The service handles:
+            // 1. Checkbox management (UsrALPrintLabel state)
+            // 2. Filter scope activation (ALPackagesFilterScope)
+            // 3. Native CreatePrintContext() call
+            // 4. PrintLabels() invocation
+            
+            var service = new AsgardLabelService(graph, _labelGenerator);
+
+            // ✅ CRITICAL: Resolve model explicitly BEFORE delegating
+            // The model's BasedOnView determines the row structure
+            const bool preferBoxPrintModel = false;
+            const string fallbackModelName = "iStar-8A-Packing for Boscov";
+
+            Guid? modelId = service.ResolveModelId(fallbackModelName, preferBoxPrintModel);
+
+            if (modelId == null || modelId == Guid.Empty)
+            {
+                throw new PXException(
+                    "Could not resolve an Asgard label model for selected-package native printing. " +
+                    "Please verify ALSetupSlot.BoxPrintModelID or the fallback model name.");
+            }
+
+            PXTrace.WriteInformation("[INTERNAL] Model resolved: ModelID={0}", modelId);
+
+            // ✅ Service owns filter scope + checkbox + context + print
+            // No outer wrapping needed here
+            PrintResults results = service.PrintSelectedPackageUsingNativeContext(
+                shipmentInLongOp,
+                modelId,
+                packageLineNbr,
+                new PXAdapter(graph.Document));
+
+            if (results == null)
+                throw new PXException("Label printing returned no results.");
+
+            if (results.NbLabels <= 0)
+            {
+                throw new PXException(
+                    "No labels were generated. Please verify the selected package is valid and the selected label model is configured correctly.");
+            }
+
+            PXTrace.WriteInformation("[INTERNAL] ✅ Successfully printed {0} label(s) for package line {1}", 
+                results.NbLabels, packageLineNbr);
         }
 
         protected virtual void _(Events.RowSelected<SOShipment> e)
