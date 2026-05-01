@@ -83,22 +83,31 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 PXCache cache = Base.Caches[currentSelected.GetType()];
 
-                foreach (PXCacheExtension ext in cache.GetExtensions(currentSelected))
+                // Try to enumerate extensions (this may fail in some Acumatica versions)
+                try
                 {
-                    PXTrace.WriteInformation("[PKG-EXT] Extension: {0}", ext.GetType().FullName);
-
-                    foreach (var prop in ext.GetType().GetProperties())
+                    var extensions = cache.GetExtensions(currentSelected);
+                    foreach (PXCacheExtension ext in extensions)
                     {
-                        try
+                        PXTrace.WriteInformation("[PKG-EXT] Extension: {0}", ext.GetType().FullName);
+
+                        foreach (var prop in ext.GetType().GetProperties())
                         {
-                            object value = prop.GetValue(ext);
-                            PXTrace.WriteInformation("[PKG-EXT] {0}: {1}", prop.Name, value?.ToString() ?? "null");
-                        }
-                        catch (Exception ex)
-                        {
-                            PXTrace.WriteInformation("[PKG-EXT] {0}: ERROR - {1}", prop.Name, ex.Message);
+                            try
+                            {
+                                object value = prop.GetValue(ext);
+                                PXTrace.WriteInformation("[PKG-EXT] {0}: {1}", prop.Name, value?.ToString() ?? "null");
+                            }
+                            catch (Exception ex)
+                            {
+                                PXTrace.WriteInformation("[PKG-EXT] {0}: ERROR - {1}", prop.Name, ex.Message);
+                            }
                         }
                     }
+                }
+                catch (Exception extEnumEx)
+                {
+                    PXTrace.WriteInformation("[PKG-EXT] Could not enumerate extensions: {0}", extEnumEx.Message);
                 }
 
                 // ✅ TARGETED CHECK: Log critical fields for Asgard label generation
@@ -106,21 +115,34 @@ namespace AA.Objects.AL.Integration.PerPackage
                 // "Are UsrTCUCC128 and UsrCartonNbr populated at print time?"
                 try
                 {
-                    var extList = cache.GetExtensions(currentSelected).ToList();
-                    var firstExt = extList.FirstOrDefault();
-
+                    PXCache cacheForExt = Base.Caches[currentSelected.GetType()];
+                    
                     object ucc128Value = null;
                     object cartonNbrValue = null;
 
-                    if (firstExt != null)
+                    // Try to read extension fields directly via property reflection
+                    var extType = currentSelected.GetType();
+                    
+                    // Check for UsrTCUCC128
+                    var ucc128Prop = extType.GetProperty("UsrTCUCC128");
+                    if (ucc128Prop != null)
                     {
-                        var ucc128Prop = firstExt.GetType().GetProperty("UsrTCUCC128");
-                        var cartonNbrProp = firstExt.GetType().GetProperty("UsrCartonNbr");
+                        try
+                        {
+                            ucc128Value = ucc128Prop.GetValue(currentSelected);
+                        }
+                        catch { }
+                    }
 
-                        if (ucc128Prop != null)
-                            ucc128Value = ucc128Prop.GetValue(firstExt);
-                        if (cartonNbrProp != null)
-                            cartonNbrValue = cartonNbrProp.GetValue(firstExt);
+                    // Check for UsrCartonNbr
+                    var cartonNbrProp = extType.GetProperty("UsrCartonNbr");
+                    if (cartonNbrProp != null)
+                    {
+                        try
+                        {
+                            cartonNbrValue = cartonNbrProp.GetValue(currentSelected);
+                        }
+                        catch { }
                     }
 
                     PXTrace.WriteInformation(
