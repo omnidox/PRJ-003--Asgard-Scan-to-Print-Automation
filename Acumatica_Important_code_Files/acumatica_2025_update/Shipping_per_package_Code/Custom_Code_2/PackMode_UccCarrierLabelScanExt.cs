@@ -79,6 +79,10 @@ namespace PX.Objects.SO.WMS
         /// <summary>
         /// Main entry point for UCC barcode scan handling.
         /// Normalizes barcode, finds matching package, validates conditions, queues generation.
+        /// 
+        /// Note: We do NOT cast basis.Graph to SOShipmentEntry here, as the WMS basis.Graph
+        /// may be a host graph type. We use the basis state to access the shipment, and only
+        /// create a fresh SOShipmentEntry graph inside the isolated PXLongOperation.
         /// </summary>
         private bool TryHandleUccCarrierLabelScan(PickPackShip.Host basis, string rawBarcode)
         {
@@ -93,22 +97,25 @@ namespace PX.Objects.SO.WMS
                 string normalizedBarcode = NormalizeBarcode(rawBarcode);
                 PXTrace.WriteInformation("[UCC-SCAN] Normalized barcode: '{0}'", normalizedBarcode);
 
-                SOShipmentEntry graph = basis.Graph as SOShipmentEntry;
-                if (graph == null)
-                {
-                    PXTrace.WriteWarning("[UCC-SCAN] Could not cast basis.Graph to SOShipmentEntry");
-                    return false;
-                }
+                // Access shipment from WMS basis state, not from graph cast
+                SOShipment shipment = basis.RefNbr != null
+                    ? SOShipment.PK.Find(basis, basis.RefNbr)
+                    : null;
 
-                SOShipment shipment = graph.Document.Current;
                 if (shipment == null)
                 {
                     PXTrace.WriteWarning("[UCC-SCAN] No shipment currently loaded");
                     return false;
                 }
 
+                PXTrace.WriteInformation("[UCC-SCAN] Current shipment: {0}", shipment.ShipmentNbr);
+
+                // Use a fresh graph for the lookup (safe approach)
+                var lookupGraph = PXGraph.CreateInstance<SOShipmentEntry>();
+                lookupGraph.Document.Current = shipment;
+
                 // Find package matching this UCC in the current shipment
-                SOPackageDetailEx package = FindPackageByUcc(graph, shipment.ShipmentNbr, normalizedBarcode);
+                SOPackageDetailEx package = FindPackageByUcc(lookupGraph, shipment.ShipmentNbr, normalizedBarcode);
                 if (package == null)
                 {
                     PXTrace.WriteInformation("[UCC-SCAN] No package found with UCC '{0}' in shipment {1}", normalizedBarcode, shipment.ShipmentNbr);
@@ -118,14 +125,17 @@ namespace PX.Objects.SO.WMS
                 PXTrace.WriteInformation("[UCC-SCAN] Found package line {0} with UCC '{1}'", package.LineNbr, normalizedBarcode);
 
                 // Check for existing tracking/label (duplicate protection before queuing)
-                if (HasExistingTrackingOrLabel(graph, package))
+                if (HasExistingTrackingOrLabel(lookupGraph, package))
                 {
                     PXTrace.WriteWarning("[UCC-SCAN] Package line {0} already has tracking or label attached, skipping generation", package.LineNbr);
-                    return true; // Return true to consume the scan (avoid further processing)
+                    
+                    // Consume the scan (return true) but silently skip
+                    // In production, could add WMS message here if available
+                    return true;
                 }
 
                 // Queue the carrier label generation in a long operation
-                QueueCarrierLabelGeneration(basis, graph, shipment, package);
+                QueueCarrierLabelGeneration(basis, shipment, package);
                 return true;
             }
             catch (Exception ex)
@@ -156,7 +166,7 @@ namespace PX.Objects.SO.WMS
 
             try
             {
-                // Query all packages for this shipment and match UCC via extension
+                // Query all packages for this shipment and match UCC via extension reflection
                 var result = PXSelect<
                     SOPackageDetailEx,
                     Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
@@ -206,7 +216,11 @@ namespace PX.Objects.SO.WMS
 
         /// <summary>
         /// Check if a carrier label file is already attached to the package.
-        /// Looks for .pdf, .zpl, .zplii, .epl files in package notes.
+        /// Looks for .pdf, .zpl, .zplii, .epl files in package notes that match carrier label naming.
+        /// 
+        /// Note: This is a conservative check. In production, you may want to add additional
+        /// validation for carrier-label-specific naming patterns to avoid treating unrelated
+        /// package files as carrier labels.
         /// </summary>
         private FileInfo TryGetExistingCarrierLabel(SOShipmentEntry graph, SOPackageDetailEx package)
         {
@@ -238,7 +252,7 @@ namespace PX.Objects.SO.WMS
         /// Queue a PXLongOperation to generate and print the carrier label for the package.
         /// Uses fresh graph to avoid state contamination from WMS context.
         /// </summary>
-        private void QueueCarrierLabelGeneration(PickPackShip.Host basis, SOShipmentEntry graph, SOShipment shipment, SOPackageDetailEx package)
+        private void QueueCarrierLabelGeneration(PickPackShip.Host basis, SOShipment shipment, SOPackageDetailEx package)
         {
             string shipmentNbr = shipment.ShipmentNbr;
             int? packageLineNbr = package.LineNbr;
@@ -310,7 +324,7 @@ namespace PX.Objects.SO.WMS
                     PXTrace.WriteInformation("[UCC-SCAN-LONGOP] ✅ Carrier label generated: {0}", generatedFile.Name);
 
                     // Output/print the single generated label file
-                    OutputSingleGeneratedLabelFile(generatedFile);
+                    OutputSingleGeneratedLabelFile(freshGraph, generatedFile);
 
                     PXTrace.WriteInformation("[UCC-SCAN-LONGOP] ✅ Label file output completed");
                 }
@@ -351,10 +365,19 @@ namespace PX.Objects.SO.WMS
 
         /// <summary>
         /// Output (print/download) the single generated label file.
-        /// Uses PXRedirectToFileException to show the file in the browser.
-        /// Avoids calling shipment-level PrintCarrierLabels() which may print all labels.
+        /// 
+        /// Current implementation uses PXRedirectToFileException for browser download/viewing.
+        /// 
+        /// Future enhancement: This method signature accepts SOShipmentEntry graph so that
+        /// it can be overridden to use alternative output methods (DeviceHub direct printing,
+        /// print job queuing, etc.) without requiring changes to the core logic.
+        /// 
+        /// Override this method in a child customization to swap:
+        /// - PXRedirectToFileException (browser download)
+        /// - DeviceHub/printer integration
+        /// - Print queue submission
         /// </summary>
-        private void OutputSingleGeneratedLabelFile(FileInfo fileInfo)
+        protected virtual void OutputSingleGeneratedLabelFile(SOShipmentEntry graph, FileInfo fileInfo)
         {
             if (fileInfo == null)
                 throw new PXException("No label file was generated for output.");
