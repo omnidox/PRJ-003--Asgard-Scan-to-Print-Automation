@@ -83,19 +83,41 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 PXCache cache = Base.Caches[currentSelected.GetType()];
 
-                // Try to enumerate extensions (this may fail in some Acumatica versions)
-                try
+                foreach (Type extType in cache.GetExtensionTypes())
                 {
-                    var extensions = cache.GetExtensions(currentSelected);
-                    foreach (PXCacheExtension ext in extensions)
+                    try
                     {
-                        PXTrace.WriteInformation("[PKG-EXT] Extension: {0}", ext.GetType().FullName);
+                        // Use reflection to invoke generic GetExtension<T>(row) method
+                        var method = typeof(PXCache)
+                            .GetMethods()
+                            .FirstOrDefault(m =>
+                                m.Name == "GetExtension" &&
+                                m.IsGenericMethodDefinition &&
+                                m.GetParameters().Length == 1);
+
+                        if (method == null)
+                        {
+                            PXTrace.WriteInformation("[PKG-EXT] Could not find generic GetExtension<T>(row) method.");
+                            continue;
+                        }
+
+                        object ext = method
+                            .MakeGenericMethod(extType)
+                            .Invoke(cache, new object[] { currentSelected });
+
+                        if (ext == null)
+                        {
+                            PXTrace.WriteInformation("[PKG-EXT] Extension {0}: null", extType.FullName);
+                            continue;
+                        }
+
+                        PXTrace.WriteInformation("[PKG-EXT] Extension: {0}", extType.FullName);
 
                         foreach (var prop in ext.GetType().GetProperties())
                         {
                             try
                             {
-                                object value = prop.GetValue(ext);
+                                object value = prop.GetValue(ext, null);
                                 PXTrace.WriteInformation("[PKG-EXT] {0}: {1}", prop.Name, value?.ToString() ?? "null");
                             }
                             catch (Exception ex)
@@ -104,10 +126,10 @@ namespace AA.Objects.AL.Integration.PerPackage
                             }
                         }
                     }
-                }
-                catch (Exception extEnumEx)
-                {
-                    PXTrace.WriteInformation("[PKG-EXT] Could not enumerate extensions: {0}", extEnumEx.Message);
+                    catch (Exception ex)
+                    {
+                        PXTrace.WriteInformation("[PKG-EXT] Could not inspect extension {0}: {1}", extType.FullName, ex.Message);
+                    }
                 }
 
                 // ✅ TARGETED CHECK: Log critical fields for Asgard label generation
@@ -115,32 +137,64 @@ namespace AA.Objects.AL.Integration.PerPackage
                 // "Are UsrTCUCC128 and UsrCartonNbr populated at print time?"
                 try
                 {
-                    PXCache cacheForExt = Base.Caches[currentSelected.GetType()];
+                    PXCache cacheForCheck = Base.Caches[currentSelected.GetType()];
                     
                     object ucc128Value = null;
                     object cartonNbrValue = null;
 
-                    // Try to read extension fields directly via property reflection
-                    var extType = currentSelected.GetType();
-                    
-                    // Check for UsrTCUCC128
-                    var ucc128Prop = extType.GetProperty("UsrTCUCC128");
-                    if (ucc128Prop != null)
+                    // Search for the fields in each extension
+                    foreach (Type extType in cacheForCheck.GetExtensionTypes())
                     {
                         try
                         {
-                            ucc128Value = ucc128Prop.GetValue(currentSelected);
-                        }
-                        catch { }
-                    }
+                            var method = typeof(PXCache)
+                                .GetMethods()
+                                .FirstOrDefault(m =>
+                                    m.Name == "GetExtension" &&
+                                    m.IsGenericMethodDefinition &&
+                                    m.GetParameters().Length == 1);
 
-                    // Check for UsrCartonNbr
-                    var cartonNbrProp = extType.GetProperty("UsrCartonNbr");
-                    if (cartonNbrProp != null)
-                    {
-                        try
-                        {
-                            cartonNbrValue = cartonNbrProp.GetValue(currentSelected);
+                            if (method == null)
+                                continue;
+
+                            object ext = method
+                                .MakeGenericMethod(extType)
+                                .Invoke(cacheForCheck, new object[] { currentSelected });
+
+                            if (ext == null)
+                                continue;
+
+                            // Look for UsrTCUCC128
+                            if (ucc128Value == null)
+                            {
+                                var ucc128Prop = ext.GetType().GetProperty("UsrTCUCC128");
+                                if (ucc128Prop != null)
+                                {
+                                    try
+                                    {
+                                        ucc128Value = ucc128Prop.GetValue(ext);
+                                    }
+                                    catch { }
+                                }
+                            }
+
+                            // Look for UsrCartonNbr
+                            if (cartonNbrValue == null)
+                            {
+                                var cartonNbrProp = ext.GetType().GetProperty("UsrCartonNbr");
+                                if (cartonNbrProp != null)
+                                {
+                                    try
+                                    {
+                                        cartonNbrValue = cartonNbrProp.GetValue(ext);
+                                    }
+                                    catch { }
+                                }
+                            }
+
+                            // If we found both, stop searching
+                            if (ucc128Value != null && cartonNbrValue != null)
+                                break;
                         }
                         catch { }
                     }
