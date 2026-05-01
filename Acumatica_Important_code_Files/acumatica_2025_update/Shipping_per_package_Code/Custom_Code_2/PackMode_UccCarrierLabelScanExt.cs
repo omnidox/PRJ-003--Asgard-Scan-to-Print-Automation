@@ -78,6 +78,7 @@ namespace PX.Objects.SO.WMS
         /// <summary>
         /// Main entry point for UCC barcode scan handling.
         /// Normalizes barcode, finds matching package, validates conditions, queues generation.
+        /// Uses Basis (passed from the intercept) to access the WMS context safely.
         /// </summary>
         private bool TryHandleUccCarrierLabelScan(PickPackShip.Host basis, string rawBarcode)
         {
@@ -92,7 +93,8 @@ namespace PX.Objects.SO.WMS
                 string normalizedBarcode = NormalizeBarcode(rawBarcode);
                 PXTrace.WriteInformation("[UCC-SCAN] Normalized barcode: '{0}'", normalizedBarcode);
 
-                // Access shipment using basis.Graph (correct context)
+                // Access shipment through Basis.Graph (the WMS basis context)
+                // basis.RefNbr is the shipment number from the WMS state
                 SOShipment shipment = SOShipment.PK.Find(basis.Graph, basis.RefNbr);
                 if (shipment == null)
                 {
@@ -261,6 +263,7 @@ namespace PX.Objects.SO.WMS
         /// <summary>
         /// Queue a PXLongOperation to generate and print the carrier label for the package.
         /// Uses fresh graph to avoid state contamination from WMS context.
+        /// Uses basis.Graph as the context for PXLongOperation (same pattern as Asgard extension).
         /// </summary>
         private void QueueCarrierLabelGeneration(PickPackShip.Host basis, SOShipment shipment, SOPackageDetailEx package)
         {
@@ -275,6 +278,7 @@ namespace PX.Objects.SO.WMS
 
             PXTrace.WriteInformation("[UCC-SCAN] Queueing carrier label generation for package {0} in shipment {1}", packageLineNbr, shipmentNbr);
 
+            // Use basis.Graph as the context (matching Asgard extension pattern)
             PXLongOperation.StartOperation(basis.Graph, delegate()
             {
                 PXTrace.WriteInformation("[UCC-SCAN-LONGOP] Long operation started for package {0}", packageLineNbr);
