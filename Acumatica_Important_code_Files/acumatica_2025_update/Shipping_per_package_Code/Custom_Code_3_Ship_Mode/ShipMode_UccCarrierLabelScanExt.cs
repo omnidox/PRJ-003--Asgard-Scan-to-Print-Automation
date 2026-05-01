@@ -56,6 +56,10 @@ namespace PX.Objects.SO.WMS
         [PXOverride]
         public virtual bool Process(string barcode, ProcessDelegate base_Process)
         {
+            // Only process UCC scans in Ship Mode
+            if (Basis.Header.Mode != PickPackShip.ShipMode.Value)
+                return base_Process(barcode);
+
             PXTrace.WriteInformation("[UCC-SHIP-SCAN] Process called with barcode: '{0}'", barcode ?? "null");
 
             // Try to handle as UCC carrier label scan first
@@ -128,8 +132,8 @@ namespace PX.Objects.SO.WMS
                 {
                     PXTrace.WriteWarning("[UCC-SHIP-SCAN] Package line {0} already has tracking or label attached, skipping generation", package.LineNbr);
                     
-                    // Consume the scan (return true) but silently skip
-                    // In production, could add WMS message here if available
+                    // Report to user that package already has label
+                    basis.ReportInfo($"Package line {package.LineNbr} already has a carrier label or tracking number.");
                     return true;
                 }
 
