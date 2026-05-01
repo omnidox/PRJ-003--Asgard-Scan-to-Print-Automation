@@ -61,26 +61,78 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             // ✅ Log all available information from the selected package
             // This provides complete visibility into what fields are available during testing
+            // Includes both base DAC fields AND extension fields (UsrTCUCC128, UsrCartonNbr, etc.)
             if (currentSelected != null)
             {
-                PXTrace.WriteInformation("[PKG-ALL] === All Available Fields from SOPackageDetail ===");
+                PXTrace.WriteInformation("[PKG-ALL] === Base SOPackageDetail Fields ===");
                 
-                var properties = currentSelected.GetType().GetProperties();
-                foreach (var prop in properties)
+                foreach (var prop in currentSelected.GetType().GetProperties())
                 {
                     try
                     {
                         object value = prop.GetValue(currentSelected);
-                        string displayValue = value?.ToString() ?? "null";
-                        PXTrace.WriteInformation("[PKG-ALL] {0}: {1}", prop.Name, displayValue);
+                        PXTrace.WriteInformation("[PKG-ALL] {0}: {1}", prop.Name, value?.ToString() ?? "null");
                     }
                     catch (Exception ex)
                     {
                         PXTrace.WriteInformation("[PKG-ALL] {0}: ERROR - {1}", prop.Name, ex.Message);
                     }
                 }
-                
-                PXTrace.WriteInformation("[PKG-ALL] === End of Field List ===");
+
+                PXTrace.WriteInformation("[PKG-EXT] === DAC Extension Fields ===");
+
+                PXCache cache = Base.Caches[currentSelected.GetType()];
+
+                foreach (PXCacheExtension ext in cache.GetExtensions(currentSelected))
+                {
+                    PXTrace.WriteInformation("[PKG-EXT] Extension: {0}", ext.GetType().FullName);
+
+                    foreach (var prop in ext.GetType().GetProperties())
+                    {
+                        try
+                        {
+                            object value = prop.GetValue(ext);
+                            PXTrace.WriteInformation("[PKG-EXT] {0}: {1}", prop.Name, value?.ToString() ?? "null");
+                        }
+                        catch (Exception ex)
+                        {
+                            PXTrace.WriteInformation("[PKG-EXT] {0}: ERROR - {1}", prop.Name, ex.Message);
+                        }
+                    }
+                }
+
+                // ✅ TARGETED CHECK: Log critical fields for Asgard label generation
+                // This cuts through the noise and directly answers:
+                // "Are UsrTCUCC128 and UsrCartonNbr populated at print time?"
+                try
+                {
+                    var extList = cache.GetExtensions(currentSelected).ToList();
+                    var firstExt = extList.FirstOrDefault();
+
+                    object ucc128Value = null;
+                    object cartonNbrValue = null;
+
+                    if (firstExt != null)
+                    {
+                        var ucc128Prop = firstExt.GetType().GetProperty("UsrTCUCC128");
+                        var cartonNbrProp = firstExt.GetType().GetProperty("UsrCartonNbr");
+
+                        if (ucc128Prop != null)
+                            ucc128Value = ucc128Prop.GetValue(firstExt);
+                        if (cartonNbrProp != null)
+                            cartonNbrValue = cartonNbrProp.GetValue(firstExt);
+                    }
+
+                    PXTrace.WriteInformation(
+                        "[PKG-CHECK] LineNbr={0}, UsrTCUCC128={1}, UsrCartonNbr={2}",
+                        currentSelected.LineNbr,
+                        ucc128Value?.ToString() ?? "null",
+                        cartonNbrValue?.ToString() ?? "null");
+                }
+                catch (Exception checkEx)
+                {
+                    PXTrace.WriteInformation("[PKG-CHECK] ERROR reading critical fields: {0}", checkEx.Message);
+                }
             }
             else
             {
