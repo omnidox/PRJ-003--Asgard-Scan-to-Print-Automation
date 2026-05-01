@@ -1,0 +1,90 @@
+<template>
+	<div class="v-stack" id="form_vStack" wg-container>
+		<qp-fieldset id="ReportLink_PXLayoutRule100" wg-container="ReportLink_form" view.bind="ReportLink" class="label-size-xm">
+			<field name="ServerName"></field>
+			<field name="UserName"></field>
+			<field name="Password"></field>
+			<field name="Tenant"></field>
+		</qp-fieldset>
+
+		<qp-template id="ReportLink_CstPXLayoutRule5_30" name="1-1-1">
+			<qp-fieldset id="ReportLink_CstPXLayoutRule60" wg-container="ReportLink_form" view.bind="ReportLink"
+				slot="A" class="label-size-xm">
+				<field name="ReportAuth"></field>
+			</qp-fieldset>
+			<qp-fieldset id="ReportLink_CstPXLayoutRule71" wg-container="ReportLink_form" view.bind="ReportLink"
+				slot="B" class="label-size-xm">
+				<field name="LabelAuth"></field>
+			</qp-fieldset>
+			<qp-fieldset id="ReportLink_CstPXLayoutRule92" wg-container="ReportLink_form" view.bind="ReportLink"
+				slot="C" class="label-size-xm">
+				<field name="IndicatorAuth"></field>
+			</qp-fieldset>
+		</qp-template>
+
+		<qp-template id="ReportLink_CstPXLayoutRule11_20" name="1-2" class="col-12">
+			<qp-fieldset id="ReportLink_CstPXLayoutRule150" wg-container="ReportLink_form" view.bind="ReportLink" class="label-size-xm">
+				<field name="ReportHistory">
+					<qp-button id="btDiscon_Report" caption="Disconnect" state.bind="TCReportDisconnectConfirm"
+						class="col-2"></qp-button>
+				</field>
+			</qp-fieldset>
+			<div slot="A"></div>
+		</qp-template>
+
+		<qp-template id="ReportLink_CstPXLayoutRule23_20" name="1-1-1" class="col-12">
+			<qp-fieldset id="ReportLink_CstPXLayoutRule250" wg-container="ReportLink_form" view.bind="ReportLink" class="label-size-xm">
+				<field name="LabelHistory">
+					<qp-button id="btDiscon_Label" caption="Disconnect" state.bind="TCLabelDisconnectConfirm"
+						class="col-2"></qp-button>
+				</field>
+			</qp-fieldset>
+			<div slot="A"></div>
+		</qp-template>
+
+		<qp-template id="ReportLink_CstPXLayoutRule24_20" name="2-1" class="col-12">
+			<qp-fieldset id="ReportLink_CstPXLayoutRule270" wg-container="ReportLink_form" view.bind="ReportLink" class="label-size-xm">
+				<field name="IndicatorHistory">
+					<qp-button id="btDiscon_Indicator" caption="Disconnect" state.bind="TCTransactionDisconnectConfirm"
+						class="col-2"></qp-button>
+				</field>
+			</qp-fieldset>
+			<div slot="A"></div>
+		</qp-template>
+		<qp-panel id="TCReportConnectFilterView" action="TCReportDisconnectConfirm"
+			wg-container="TCReportConnectFilterView_TCReportConnectFilterView" caption="Report Disconnect"
+			auto-repaint="true">
+			<qp-label id="CstLabel40"
+				caption="Continue to disconnect 'Report' This will unlink all related Report Dashboard(s)."></qp-label>
+			<footer>
+				<qp-button id="CstButton36" caption="Continue" state.bind="TCReportDisconnect"
+					dialog-result="OK"></qp-button>
+				<qp-button id="CstButton37" caption="Cancel" dialog-result="Cancel"></qp-button>
+			</footer>
+		</qp-panel>
+		<qp-panel id="TCTransactionConnectFilterView" action="TCTransactionDisconnectConfirm"
+			wg-container="TCTransactionConnectFilterView_TCTransactionConnectFilterView"
+			caption="Transaction Status Disconnect" auto-repaint="true">
+			<qp-label id="CstLabel39"
+				caption="Continue to disconnect 'Transaction Status' This will also set all related Automation Schedule(s) to 'Inactive'."></qp-label>
+			<footer>
+				<qp-button id="CstButton35" caption="Continue" state.bind="TCTransactionDisconnect"
+					dialog-result="OK"></qp-button>
+				<qp-button id="CstButton34" caption="Cancel" dialog-result="Cancel"></qp-button>
+			</footer>
+		</qp-panel>
+		<qp-panel id="TCLabelConnectFilterView" action="TCLabelDisconnectConfirm"
+			wg-container="TCLabelConnectFilterView_TCLabelConnectFilterView" caption="Label Disconnect"
+			auto-repaint="true">
+			<qp-label id="CstLabel38"
+				caption="Continue to disconnect 'Label' You will need to log on Foundry platform again if you want to print label(s)."></qp-label>
+			<footer>
+				<qp-button id="CstButton33" caption="Continue" state.bind="TCLabelDisconnect"
+					dialog-result="OK"></qp-button>
+				<qp-button id="CstButton32" caption="Cancel" dialog-result="Cancel"></qp-button>
+			</footer>
+		</qp-panel>
+
+	</div>
+
+</template>

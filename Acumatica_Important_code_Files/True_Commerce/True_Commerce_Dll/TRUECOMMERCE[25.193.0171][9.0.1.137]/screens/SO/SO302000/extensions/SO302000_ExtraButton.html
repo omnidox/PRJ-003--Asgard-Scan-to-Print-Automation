@@ -1,0 +1,41 @@
+<template>
+    <qp-panel id="TCAssignpalletfilterView" caption="Assign Pallet">
+        <qp-template id="form-TCAssignpallet" name="17-17-14" class="equal-height">
+            <qp-fieldset id="TCAssignpalletfilterView_CstPXLayoutRule170"
+                wg-container="TCAssignpalletfilterView_CstFormView16" view.bind="TCAssignpalletfilterView" slot="A"
+                caption="Enter Pallet for Packages">
+                <field name="palletID"></field>
+                <field name="PackageStart"></field>
+                <field name="PackageEnd"></field>
+            </qp-fieldset>
+        </qp-template>
+        <footer>
+            <qp-button id="CstButton25" caption="Assign" state.bind="TCAssignPallet"></qp-button>
+            <qp-button id="CstButton26" caption="Assign & Close" state.bind="TCAssignPallet"
+                dialog-result="OK"></qp-button>
+        </footer>
+    </qp-panel>
+    <qp-panel id="TCDeletepalletfilterView" caption="Delete Pallet">
+        <qp-template id="form-TCDeletepallet" name="17-17-14" class="equal-height">
+            <qp-fieldset id="TCDeletepalletfilterView_CstPXLayoutRule270"
+                wg-container="TCDeletepalletfilterView_CstFormView23" view.bind="TCDeletepalletfilterView" slot="A"
+                caption="Delete Specific Pallet">
+                <field name="palletID"></field>
+            </qp-fieldset>
+        </qp-template>
+        <footer>
+            <qp-button id="CstButton29" caption="Delete" state.bind="TCDeletePallet"></qp-button>
+            <qp-button id="CstButton30" caption="Delete & Close" state.bind="TCDeletePallet"
+                dialog-result="OK"></qp-button>
+        </footer>
+    </qp-panel>
+    <qp-panel id="TCAutoPackFilterView" wg-container="TCAutoPackFilterView_TCAutoPackFilterView" caption="Auto Pack"
+        auto-repaint="true">
+        <qp-label id="CstLabel40"
+            caption="Warning: All existing packages on this Shipment will be deleted and new ones created based on the Auto-Pack settings. New packages will be assigned Box IDs based on the weight of the contents within each package."></qp-label>
+        <footer>
+            <qp-button id="CstButton36" caption="Continue" state.bind="TCAutoPack" dialog-result="OK"></qp-button>
+            <qp-button id="CstButton37" caption="Cancel" dialog-result="Cancel"></qp-button>
+        </footer>
+    </qp-panel>
+</template>

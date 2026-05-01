@@ -1,0 +1,44 @@
+<template>
+
+	<qp-template id="TCCustomerRecord_form0_20" name="1-1">
+		<qp-fieldset id="TCCustomerRecord_CstPXLayoutRule560" wg-container="TCCustomerRecord_form"
+			view.bind="TCCustomerRecord" slot="A" caption="General Settings" class="label-size-xm">
+			<field name="CustomerID"></field>
+			<field name="TCDefaultShipFromAddress"></field>
+			<field name="DefaultLabelPartner"></field>
+			<field name="DefaultLabelTemplate"></field>
+			<field name="ProcessingUnmatchingLine"></field>
+			<field name="ValidateUCC128"></field>
+			<field name="ComplianceSequence"></field>
+			<field name="ValidateRequiredFields"></field>
+			<field name="PullAddFromShipment"></field>
+		</qp-fieldset>
+		<qp-fieldset id="TCCustomerRecord_CstPXLayoutRule631" wg-container="TCCustomerRecord_form"
+			view.bind="TCCustomerRecord" slot="B" caption="GS1-128"> class="label-size-xm"
+			<field name="TCCustomerRecord_unbound_1" unbound>
+				<qp-label id="NoteB"
+					caption="* The combined entries for Company # and Next Serial # cannot exceed 16 characters."></qp-label>
+			</field>
+			<field name="UCCNumber"></field>
+			<field name="UCCExtension"></field>
+			<field name="UCCCompany"></field>
+			<field name="UCCNextSerialNo"></field>
+			<field name="UCCAutoCreate"></field>
+			<field name="PrintDestination"></field>
+		</qp-fieldset>
+	</qp-template>
+	<qp-tabbar id="FieldMaps">
+		<qp-tab id="FieldMaps0" caption="Label Fields Maps">
+			<qp-fieldset id="TCCustomerRecord_CstPXLayoutRule230" wg-container="TCCustomerRecord_CstFormView15"
+				view.bind="TCCustomerRecord" class="label-size-xm">
+				<field name="TCCustomerRecord_unbound_0" unbound>
+					<qp-label id="CstLabel19"
+						caption="*Please clicking on 'LOAD LABEL FIELDS' button to get the label fields of default label template and corresponding transaction types which are setup in TM. Then, choose different TM Transactions to update 'Misc' fields maps."></qp-label>
+				</field>
+				<field name="TMTransaction"></field>
+			</qp-fieldset>
+			<qp-grid id="TCLabelFieldMapRecord_mapListGrid" view.bind="TCLabelFieldMapRecord"></qp-grid>
+		</qp-tab>
+	</qp-tabbar>
+
+</template>

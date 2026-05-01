@@ -1,0 +1,17 @@
+<template>
+
+	<qp-template id="Filter_form0_20" name="1-1">
+		<qp-fieldset id="Filter_form000" wg-container="Filter_form" view.bind="Filter" slot="A" class="label-size-xm">
+			<field name="OrderNbrFrom"></field>
+			<field name="DateFrom"></field>
+			<field name="AutoPack"></field>
+		</qp-fieldset>
+		<qp-fieldset id="Filter_form011" wg-container="Filter_form" view.bind="Filter" slot="B" class="label-size-xm">
+			<field name="OrderNbrTo"></field>
+			<field name="DateTo"></field>
+			<field name="ShipmentConfirm"></field>
+		</qp-fieldset>
+	</qp-template>
+	<qp-grid id="Orders_grid" caption="Orders" batchUpdate="True" view.bind="Orders"></qp-grid>
+
+</template>

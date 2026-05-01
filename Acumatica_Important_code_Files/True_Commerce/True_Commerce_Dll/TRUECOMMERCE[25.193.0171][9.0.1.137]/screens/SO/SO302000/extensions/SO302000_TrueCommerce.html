@@ -1,0 +1,48 @@
+<template>
+    <qp-tab id="tab-TrueCommerce_SHIPMENT" after="#tab-Packages" caption="TrueCommerce">
+        <qp-template id="form-TrueCommerce_SHIPMENT" name="17-17-14">
+            <div id="divColumnA-TrueCommerce_SHIPMENT" slot="A">
+                <qp-fieldset id="fsUDF-TrueCommerce_SHIPMENT" view.bind="CurrentDocument" caption="User Define Fields"
+                    wg-container="CurrentDocument_formUDF">
+                    <field name="UsrTCPONumber"></field>
+                    <field name="UsrTCDCCode"></field>
+                    <field name="UsrTCStoreNumber"></field>
+                    <field name="UsrTCDepartmentNumber"></field>
+                    <field name="UsrTCCustomField1"></field>
+                    <field name="UsrTCCustomField2"></field>
+                    <field name="UsrTCCustomField3"></field>
+                    <field name="UsrTCCustomField4"></field>
+                    <field name="UsrTCCustomField5"></field>
+                    <field name="UsrTCCustomField6"></field>
+                    <field name="UsrTCCustomField7"></field>
+                    <field name="UsrTCCustomField8"></field>
+                    <field name="UsrTCCustomField9"></field>
+                    <field name="UsrTCCustomField10"></field>
+                    <field name="UsrTCASNType"></field>
+                    <field name="UsrTCLabelTradingPartner"></field>
+                    <field name="UsrTCLabelTemplate"></field>
+                    <field name="UsrTCPrintDestination">
+                    </field>
+                </qp-fieldset>
+                <qp-button id="btAutoPack_Tab" caption="Auto Pack" state.bind="TCOpenAutoPackConfirm" class="col-2"></qp-button>
+            </div>
+            <div id="divColumnB-TrueCommerce_SHIPMENT" slot="B">
+                <qp-fieldset id="fsShipFromAddress-TrueCommerce_SHIPMENT" view.bind="CurrentDocument"
+                    caption="Ship-FROM ADDRESS" wg-container="CurrentDocument_formShipFromAddress">
+                    <field name="UsrTCShipFromName"></field>
+                    <field name="UsrTCShipFromAddress1"></field>
+                    <field name="UsrTCShipFromAddress2"></field>
+                    <field name="UsrTCShipFromCity"></field>
+                    <field name="UsrTCShipFromCountry"></field>
+                    <field name="UsrTCShipFromState"></field>
+                    <field name="UsrTCShipFromPostCode"></field>
+                    <field name="UsrTCShipFromPhoneNo"></field>
+                </qp-fieldset>
+                <qp-fieldset id="fsTSNStatus-TrueCommerce_SHIPMENT" view.bind="CurrentDocument" caption="Transactions Status"
+                    wg-container="CurrentDocument_formTSNStatus">
+                    <field name="UsrTCASNSentTime"></field>
+                </qp-fieldset>
+            </div>
+        </qp-template>
+    </qp-tab>
+</template>

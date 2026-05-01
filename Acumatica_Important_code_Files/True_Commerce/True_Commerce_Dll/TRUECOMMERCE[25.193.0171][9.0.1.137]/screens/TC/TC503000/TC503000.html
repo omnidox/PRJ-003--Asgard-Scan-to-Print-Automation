@@ -1,0 +1,32 @@
+<template>
+	<qp-template id="Filter_CstPXLayoutRule20_20" name="1-1" caption="FILTERS">
+		<qp-fieldset id="Filter_CstPXLayoutRule210" wg-container="Filter_formFilter" view.bind="Filter" slot="A"
+			caption="FILTERS" class="label-size-xm">
+			<field name="DateFrom"></field>
+			<field name="ShipmentNbrFrom"></field>
+			<field name="DocStatus"></field>
+			<field name="PurchaseOrderNumber"></field>
+			<field name="EDIDistributionCenter"></field>
+			<field name="Customer"></field>
+			<field name="LabelPartner"></field>
+			<field name="Level"></field>
+		</qp-fieldset>
+		<qp-fieldset id="Filter_CstPXLayoutRule221" wg-container="Filter_formFilter" view.bind="Filter" slot="B"
+			caption="FILTERS" class="label-size-xm">
+			<field name="DateTo"></field>
+			<field name="ShipmentNbrTo"></field>
+		</qp-fieldset>
+
+	</qp-template>
+	<qp-fieldset id="Filter_formOpt0" wg-container view.bind="Filter" caption="OPTIONS" class="label-size-xm">
+		<field name="Filter_unbound_0" unbound>
+			<qp-label id="CstLabel4"
+				caption="*If you select Label Template or ASN Type, the selected value will be updated to the shipments once the labels are printed successfully."></qp-label>
+		</field>
+		<field name="LabelTemplate"></field>
+		<field name="ASNType"></field>
+		<field name="ValidateRequiredField"></field>
+		<field name="PrintDestination"></field>
+	</qp-fieldset>
+	<qp-grid id="Packs_CstPXGrid12" caption="Shipment Packages" batchUpdate="True" view.bind="Packs"></qp-grid>
+</template>

@@ -1,0 +1,29 @@
+<template>
+    <qp-tab id="tab-TrueCommerce_INVOICE" after="#tab-Approval" caption="TrueCommerce">
+        <qp-template id="form-TrueCommerce_INVOICE" name="17-17-14">
+            <div id="divColumnA-TrueCommerce_INVOICE" slot="A">
+                <qp-fieldset id="fsUDF-TrueCommerce_INVOICE" view.bind="CurrentDocument" caption="User Define Fields"
+                    wg-container="CurrentDocument_formUDF">
+                    <field name="UsrTCPONumber"></field>
+                    <field name="UsrTCDCCode"></field>
+                    <field name="UsrTCStoreNumber"></field>                  
+                    <field name="UsrTCCustomField1"></field>
+                    <field name="UsrTCCustomField2"></field>
+                    <field name="UsrTCCustomField3"></field>
+                    <field name="UsrTCCustomField4"></field>
+                    <field name="UsrTCCustomField5"></field>
+                    <field name="UsrTCCustomField6"></field>
+                    <field name="UsrTCCustomField7"></field>
+                    <field name="UsrTCCustomField8"></field>
+                    <field name="UsrTCCustomField9"></field>
+                    <field name="UsrTCCustomField10"></field>
+                    <field name="UsrTCTrackingNumber"></field>
+                </qp-fieldset>
+                 <qp-fieldset id="fsTSNStatus-TrueCommerce_INVOICE" view.bind="CurrentDocument" caption="Transactions Status"
+                    wg-container="CurrentDocument_formTSNStatus">
+                    <field name="UsrTCINVSOSentTime"></field>
+                </qp-fieldset>
+            </div>          
+        </qp-template>
+    </qp-tab>
+</template>

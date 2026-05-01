@@ -1,0 +1,25 @@
+<template>
+	<qp-fieldset id="TCLabelSettingsRecord_CstPXLayoutRule40" wg-container="TCLabelSettingsRecord_form"
+		view.bind="TCLabelSettingsRecord" caption="General Settings" class="label-size-xm">
+		<field name="LabelPrintPageSize"></field>
+		<field name="TCLabelSettingsRecord_unbound_0" unbound>
+			<qp-label id="CstLabel2"
+				caption="* Labels are split into batches of maximum 100 labels per PDF file."></qp-label>
+		</field>
+		<field name="EnableLogLabelXml"></field>
+		<field name="KeepLogInDays"></field>
+	</qp-fieldset>
+	<qp-fieldset id="TCLabelSettingsRecord_CstPXLayoutRule630" wg-container="TCLabelSettingsRecord_form"
+		view.bind="TCLabelSettingsRecord" caption="GS1-128" class="label-size-xm">
+		<field name="TCLabelSettingsRecord_unbound_0" unbound>
+			<qp-label id="NoteB"
+				caption="* The combined entries for Company # and Next Serial # cannot exceed 16 characters."></qp-label>
+		</field>
+		<field name="UCCNumber"></field>
+		<field name="UCCExtension"></field>
+		<field name="UCCCompany"></field>
+		<field name="UCCNextSerialNo"></field>
+		<field name="UCCAutoCreate"></field>
+	</qp-fieldset>
+
+</template>

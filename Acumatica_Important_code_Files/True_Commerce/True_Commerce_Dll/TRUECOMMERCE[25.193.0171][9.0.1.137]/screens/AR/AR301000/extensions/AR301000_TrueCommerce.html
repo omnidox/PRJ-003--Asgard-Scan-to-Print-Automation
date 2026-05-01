@@ -1,0 +1,29 @@
+<template>
+    <qp-tab id="tab-TrueCommerce_AR" after="#tabApplications" caption="TrueCommerce">
+        <qp-template id="form-TrueCommerce_AR" name="17-17-14">
+            <div id="divColumnA-TrueCommerce_AR" slot="A">
+                <qp-fieldset id="fsTCUDF-Truecommerce_AR" wg-container="Document_TCUDF" view.bind="Document"
+                    caption="TrueCommerce UDF">
+                    <field name="UsrTCPONumber"></field>
+                    <field name="UsrTCStoreNumber"></field>
+                    <field name="UsrTCDCCode"></field>
+                    <field name="UsrTCCustomField1"></field>
+                    <field name="UsrTCCustomField2"></field>
+                    <field name="UsrTCCustomField3"></field>
+                    <field name="UsrTCCustomField4"></field>
+                    <field name="UsrTCCustomField5"></field>
+                    <field name="UsrTCCustomField6"></field>
+                    <field name="UsrTCCustomField7"></field>
+                    <field name="UsrTCCustomField8"></field>
+                    <field name="UsrTCCustomField9"></field>
+                    <field name="UsrTCCustomField10"></field>
+                    <field name="UsrTCTrackingNumber"></field>                  
+                </qp-fieldset>  
+                 <qp-fieldset id="fsTCTxnStatus-Truecommerce_AR" wg-container="Document_TCUDF"
+                    view.bind="Document"  caption="Transaction Status">
+                    <field name="UsrTCINVSentTime"></field>
+                </qp-fieldset>            
+            </div>            
+        </qp-template>
+    </qp-tab>
+</template>
