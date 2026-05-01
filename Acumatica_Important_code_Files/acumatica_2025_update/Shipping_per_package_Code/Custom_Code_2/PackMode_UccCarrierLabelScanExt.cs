@@ -20,7 +20,7 @@ namespace PX.Objects.SO.WMS
     /// generates and prints the carrier label for only that package.
     /// 
     /// Hook Strategy:
-    /// - Extends PackMode.Logic (the existing WMS infrastructure)
+    /// - Extends PickPackShip.PackMode.Logic (the existing WMS infrastructure)
     /// - Overrides InjectItemAbsenceHandlingByBox to append custom UCC handling
     /// - Preserves native Acumatica box auto-confirm behavior by calling base first
     /// - Appends custom logic to InventoryItemState.HandleAbsence intercept
@@ -29,8 +29,7 @@ namespace PX.Objects.SO.WMS
     /// - Uses PXLongOperation for isolated carrier service execution
     /// 
     /// Why InjectItemAbsenceHandlingByBox (not DecorateScanState):
-    /// - DecorateScanState is already overridden in PackMode.Logic
-    /// - InjectItemAbsenceHandlingByBox is the existing decoration method
+    /// - InjectItemAbsenceHandlingByBox is the existing decoration method in PackMode.Logic
     /// - Called during DecorateScanState for InventoryItemState decoration
     /// - Allows us to append logic without duplicating the state machine hook
     /// - Preserves clean separation of concerns (base + custom appends)
@@ -79,10 +78,6 @@ namespace PX.Objects.SO.WMS
         /// <summary>
         /// Main entry point for UCC barcode scan handling.
         /// Normalizes barcode, finds matching package, validates conditions, queues generation.
-        /// 
-        /// Note: We do NOT cast basis.Graph to SOShipmentEntry here, as the WMS basis.Graph
-        /// may be a host graph type. We use the basis state to access the shipment, and only
-        /// create a fresh SOShipmentEntry graph inside the isolated PXLongOperation.
         /// </summary>
         private bool TryHandleUccCarrierLabelScan(PickPackShip.Host basis, string rawBarcode)
         {
@@ -97,11 +92,8 @@ namespace PX.Objects.SO.WMS
                 string normalizedBarcode = NormalizeBarcode(rawBarcode);
                 PXTrace.WriteInformation("[UCC-SCAN] Normalized barcode: '{0}'", normalizedBarcode);
 
-                // Access shipment from WMS basis state, not from graph cast
-                SOShipment shipment = basis.RefNbr != null
-                    ? SOShipment.PK.Find(basis, basis.RefNbr)
-                    : null;
-
+                // Access shipment using basis.Graph (correct context)
+                SOShipment shipment = SOShipment.PK.Find(basis.Graph, basis.RefNbr);
                 if (shipment == null)
                 {
                     PXTrace.WriteWarning("[UCC-SCAN] No shipment currently loaded");
@@ -110,9 +102,10 @@ namespace PX.Objects.SO.WMS
 
                 PXTrace.WriteInformation("[UCC-SCAN] Current shipment: {0}", shipment.ShipmentNbr);
 
-                // Use a fresh graph for the lookup (safe approach)
+                // Use a fresh graph for the lookup (safe approach to avoid cross-graph contamination)
                 var lookupGraph = PXGraph.CreateInstance<SOShipmentEntry>();
-                lookupGraph.Document.Current = shipment;
+                var lookupShipment = SOShipment.PK.Find(lookupGraph, shipment.ShipmentNbr);
+                lookupGraph.Document.Current = lookupShipment;
 
                 // Find package matching this UCC in the current shipment
                 SOPackageDetailEx package = FindPackageByUcc(lookupGraph, shipment.ShipmentNbr, normalizedBarcode);
@@ -147,17 +140,22 @@ namespace PX.Objects.SO.WMS
         }
 
         /// <summary>
-        /// Normalize barcode by trimming whitespace.
-        /// Can be extended to handle checksum validation, prefix stripping, etc.
+        /// Normalize barcode by trimming whitespace and handling GS1 formatting.
+        /// Enhanced to handle UCC-128 barcodes with GS1 separators (ASCII 0x1D).
         /// </summary>
-        private string NormalizeBarcode(string rawBarcode)
+        private string NormalizeBarcode(string raw)
         {
-            return rawBarcode?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(raw))
+                return string.Empty;
+
+            // Trim whitespace and remove GS1 group separator (FNC1 / 0x1D)
+            return raw.Trim().Replace("\u001D", "");
         }
 
         /// <summary>
         /// Find a package in the current shipment by matching its UsrTCUCC128 field.
         /// Uses reflection on extension to match barcode to package UCC.
+        /// Applies normalization to both scanned barcode and stored UCC value for safe comparison.
         /// </summary>
         private SOPackageDetailEx FindPackageByUcc(SOShipmentEntry graph, string shipmentNbr, string normalizedUcc)
         {
@@ -175,7 +173,14 @@ namespace PX.Objects.SO.WMS
                     .FirstOrDefault(pkg =>
                     {
                         var ext = pkg.GetExtension<TCAddon.TCSOPackageDetailExt>();
-                        return ext != null && ext.UsrTCUCC128 == normalizedUcc;
+                        if (ext == null)
+                            return false;
+
+                        // Normalize BOTH scanned barcode and stored UCC for safe comparison
+                        string pkgUcc = NormalizeBarcode(ext.UsrTCUCC128);
+                        
+                        // Case-insensitive comparison for UCC-128 barcodes
+                        return string.Equals(pkgUcc, normalizedUcc, StringComparison.OrdinalIgnoreCase);
                     });
 
                 return result;
@@ -216,7 +221,7 @@ namespace PX.Objects.SO.WMS
 
         /// <summary>
         /// Check if a carrier label file is already attached to the package.
-        /// Looks for .pdf, .zpl, .zplii, .epl files in package notes that match carrier label naming.
+        /// Looks for .pdf, .zpl, .zplii, .epl files in package notes.
         /// 
         /// Note: This is a conservative check. In production, you may want to add additional
         /// validation for carrier-label-specific naming patterns to avoid treating unrelated
@@ -367,15 +372,12 @@ namespace PX.Objects.SO.WMS
         /// Output (print/download) the single generated label file.
         /// 
         /// Current implementation uses PXRedirectToFileException for browser download/viewing.
+        /// NOTE: This is for testing (browser output).
+        /// Future implementation may replace this with DeviceHub or print job logic.
         /// 
-        /// Future enhancement: This method signature accepts SOShipmentEntry graph so that
+        /// This method signature accepts SOShipmentEntry graph so that
         /// it can be overridden to use alternative output methods (DeviceHub direct printing,
         /// print job queuing, etc.) without requiring changes to the core logic.
-        /// 
-        /// Override this method in a child customization to swap:
-        /// - PXRedirectToFileException (browser download)
-        /// - DeviceHub/printer integration
-        /// - Print queue submission
         /// </summary>
         protected virtual void OutputSingleGeneratedLabelFile(SOShipmentEntry graph, FileInfo fileInfo)
         {
