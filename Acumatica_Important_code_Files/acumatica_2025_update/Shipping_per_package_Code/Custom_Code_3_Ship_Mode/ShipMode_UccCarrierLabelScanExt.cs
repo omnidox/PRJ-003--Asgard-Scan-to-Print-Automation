@@ -46,16 +46,18 @@ namespace PX.Objects.SO.WMS
         [PXOverride]
         public virtual bool HandleScan(string barcode, Func<string, bool> base_HandleScan)
         {
+            PickPackShip basis = Base.WMS;
+
             PXTrace.WriteInformation("[SHIP-MODE-UCC] HandleScan called with barcode: '{0}'", barcode ?? "null");
 
             // Only process in Ship Mode with a loaded shipment
-            if (Basis.Header?.Mode == PickPackShip.ShipMode.Value &&
-                !string.IsNullOrWhiteSpace(Basis.RefNbr))
+            if (basis.Header?.Mode == PickPackShip.ShipMode.Value &&
+                !string.IsNullOrWhiteSpace(basis.RefNbr))
             {
-                PXTrace.WriteInformation("[SHIP-MODE-UCC] In Ship Mode with shipment: {0}", Basis.RefNbr);
+                PXTrace.WriteInformation("[SHIP-MODE-UCC] In Ship Mode with shipment: {0}", basis.RefNbr);
 
                 // Try to handle as UCC carrier label scan
-                if (TryHandleUccCarrierLabelScan(Basis, barcode))
+                if (TryHandleUccCarrierLabelScan(basis, barcode))
                 {
                     PXTrace.WriteInformation("[SHIP-MODE-UCC] ✅ UCC scan handled successfully");
                     return true;
@@ -346,7 +348,8 @@ namespace PX.Objects.SO.WMS
                         SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
                         And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
                     .Select(graph, shipmentNbr, lineNbr)
-                    .FirstOrDefault() as SOPackageDetailEx;
+                    .RowCast<SOPackageDetailEx>()
+                    .FirstOrDefault();
             }
             catch (Exception ex)
             {
