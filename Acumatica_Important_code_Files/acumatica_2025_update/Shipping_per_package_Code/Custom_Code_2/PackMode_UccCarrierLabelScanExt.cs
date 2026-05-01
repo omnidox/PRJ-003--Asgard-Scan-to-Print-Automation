@@ -105,6 +105,11 @@ namespace PX.Objects.SO.WMS
                 // Use a fresh graph for the lookup (safe approach to avoid cross-graph contamination)
                 var lookupGraph = PXGraph.CreateInstance<SOShipmentEntry>();
                 var lookupShipment = SOShipment.PK.Find(lookupGraph, shipment.ShipmentNbr);
+                if (lookupShipment == null)
+                {
+                    PXTrace.WriteWarning("[UCC-SCAN] Shipment {0} could not be loaded on lookup graph", shipment.ShipmentNbr);
+                    return false;
+                }
                 lookupGraph.Document.Current = lookupShipment;
 
                 // Find package matching this UCC in the current shipment
@@ -373,7 +378,7 @@ namespace PX.Objects.SO.WMS
         /// 
         /// Current implementation uses PXRedirectToFileException for browser download/viewing.
         /// NOTE: This is for testing (browser output).
-        /// Future implementation may replace this with DeviceHub or print job logic.
+        /// Future implementation may replace this with DeviceHub or print-job logic.
         /// 
         /// This method signature accepts SOShipmentEntry graph so that
         /// it can be overridden to use alternative output methods (DeviceHub direct printing,
