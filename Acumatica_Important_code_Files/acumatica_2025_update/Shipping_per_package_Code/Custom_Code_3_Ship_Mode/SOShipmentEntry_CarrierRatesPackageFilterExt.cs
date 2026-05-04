@@ -60,12 +60,13 @@ namespace PX.Objects.SO
         ///   - Call base method unchanged
         /// </summary>
         [PXOverride]
-        protected virtual IList<CarrierBox> GetPackages(
+        public virtual IList<CarrierBox> GetPackages(
             SOShipment shiporder,
             Carrier carrier,
             CarrierPlugin plugin,
             GetPackagesDelegate baseMethod)
         {
+            PXTrace.WriteInformation("[CARRIER-PKG-FILTER-RATES] PUBLIC override entered");
             PXTrace.WriteInformation(
                 "[CARRIER-PKG-FILTER-RATES] Override invoked. ScopeActive={0}, Shipment={1}, SelectedLine={2}",
                 CarrierPackageFilterScope.IsActive,
