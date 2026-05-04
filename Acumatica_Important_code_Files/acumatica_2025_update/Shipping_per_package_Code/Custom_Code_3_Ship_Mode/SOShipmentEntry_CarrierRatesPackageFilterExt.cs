@@ -6,7 +6,6 @@ using PX.Data;
 using PX.Objects.SO;
 using PX.Objects.CS;
 using PX.CarrierService;
-using PX.Objects.SO.CarrierService;
 
 namespace PX.Objects.SO
 {
