@@ -109,7 +109,7 @@ namespace PX.Objects.SO
                 List<SOPackageDetailEx> rawPackages = PXSelect<
                     SOPackageDetailEx,
                     Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
-                    .Select(Base1, shiporder.ShipmentNbr)
+                    .Select(Base, shiporder.ShipmentNbr)
                     .RowCast<SOPackageDetailEx>()
                     .ToList();
 
@@ -161,7 +161,7 @@ namespace PX.Objects.SO
             Carrier carrier,
             CarrierPlugin plugin)
         {
-            List<SOCarrierPackageDetailEx> carrierPackages = new List<SOCarrierPackageDetailEx>();
+            List list = new List();
 
             // Get carrier package mappings
             var carrierPackageDetail = GetCarrierPackageDetail(packages, carrier.CarrierID);
@@ -183,34 +183,28 @@ namespace PX.Objects.SO
                         PXTrace.WriteWarning(
                             "[CARRIER-PKG-FILTER-RATES] Selected package LineNbr={0} is not confirmed",
                             package.LineNbr);
-                        Base1.Packages.Cache.RaiseExceptionHandling(
-                            typeof(SOPackageDetail.confirmed).Name,
+                        Base.Packages.Cache.RaiseExceptionHandling<SOPackageDetail.confirmed>(
                             package,
-                            null,
-                            new PXSetPropertyException(
-                                Messages.ConfirmationIsRequired,
-                                PXErrorLevel.Error));
+                            package.Confirmed,
+                            new PXSetPropertyException(Messages.ConfirmationIsRequired, PXErrorLevel.Error));
                         throw new PXException(Messages.ConfirmationIsRequired);
                     }
                 }
 
                 // Build carrier box for this package
                 CarrierBox box = Base1.BuildCarrierPackage(pkgDetail, plugin);
-                if (box != null)
-                {
-                    carrierPackages.Add(pkgDetail);
-                    PXTrace.WriteInformation(
-                        "[CARRIER-PKG-FILTER-RATES] Built CarrierBox for LineNbr={0}",
-                        package.LineNbr);
-                }
+                list.Add(box);
+
+                PXTrace.WriteInformation(
+                    "[CARRIER-PKG-FILTER-RATES] Built CarrierBox for LineNbr={0}",
+                    package.LineNbr);
             }
 
             PXTrace.WriteInformation(
-                "[CARRIER-PKG-FILTER-RATES] Returning {0} CarrierBox item(s). Lines: {1}",
-                carrierPackages.Count,
-                carrierPackages.Count > 0 ? string.Join(",", carrierPackages.Select(p => p.Package.LineNbr)) : "(none)");
+                "[CARRIER-PKG-FILTER-RATES] Returning {0} CarrierBox item(s)",
+                list.Count);
 
-            return carrierPackages;
+            return list;
         }
 
         /// <summary>
@@ -227,7 +221,7 @@ namespace PX.Objects.SO
             var carrierPackages = PXSelect<
                 CarrierPackage,
                 Where<CarrierPackage.carrierID, Equal<Required<CarrierPackage.carrierID>>>>
-                .Select(Base1, carrierID)
+                .Select(Base, carrierID)
                 .RowCast<CarrierPackage>()
                 .AsEnumerable();
 
