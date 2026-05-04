@@ -37,7 +37,7 @@ namespace PX.Objects.SO
     /// Design Pattern:
     /// PXGraphExtension on nested CarrierRates class within SOShipmentEntry
     /// </summary>
-    public class SOShipmentEntry_CarrierRatesPackageFilterExt : PXGraphExtension<SOShipmentEntry.CarrierRates, SOShipmentEntry>
+    public class SOShipmentEntry_CarrierRatesPackageFilterExt : PXGraphExtension<SOShipmentEntry.CarrierRates>
     {
         public static bool IsActive() => true;
 
@@ -110,7 +110,7 @@ namespace PX.Objects.SO
                 List<SOPackageDetailEx> rawPackages = PXSelect<
                     SOPackageDetailEx,
                     Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
-                    .Select(Base, shiporder.ShipmentNbr)
+                    .Select(Base.Base, shiporder.ShipmentNbr)
                     .RowCast<SOPackageDetailEx>()
                     .ToList();
 
@@ -184,7 +184,7 @@ namespace PX.Objects.SO
                         PXTrace.WriteWarning(
                             "[CARRIER-PKG-FILTER-RATES] Selected package LineNbr={0} is not confirmed",
                             package.LineNbr);
-                        Base.Packages.Cache.RaiseExceptionHandling<SOPackageDetail.confirmed>(
+                        Base.Base.Packages.Cache.RaiseExceptionHandling<SOPackageDetail.confirmed>(
                             package,
                             package.Confirmed,
                             new PXSetPropertyException(Messages.ConfirmationIsRequired, PXErrorLevel.Error));
@@ -222,7 +222,7 @@ namespace PX.Objects.SO
             var carrierPackages = PXSelect<
                 CarrierPackage,
                 Where<CarrierPackage.carrierID, Equal<Required<CarrierPackage.carrierID>>>>
-                .Select(Base, carrierID)
+                .Select(Base.Base, carrierID)
                 .RowCast<CarrierPackage>()
                 .AsEnumerable();
 
