@@ -5,6 +5,8 @@ using System.Linq;
 using PX.Data;
 using PX.Objects.SO;
 using PX.Objects.CS;
+using PX.CarrierService;
+using PX.Objects.SO.CarrierService;
 
 namespace PX.Objects.SO
 {
@@ -59,7 +61,7 @@ namespace PX.Objects.SO
         ///   - Call base method unchanged
         /// </summary>
         [PXOverride]
-        public virtual IList GetPackages(
+        protected virtual IList GetPackages(
             SOShipment shiporder,
             Carrier carrier,
             CarrierPlugin plugin,
@@ -183,7 +185,7 @@ namespace PX.Objects.SO
                         PXTrace.WriteWarning(
                             "[CARRIER-PKG-FILTER-RATES] Selected package LineNbr={0} is not confirmed",
                             package.LineNbr);
-                        Base.Packages.Cache.RaiseExceptionHandling<SOPackageDetail.confirmed>(
+                        Base.Packages.Cache.RaiseExceptionHandling(
                             package,
                             package.Confirmed,
                             new PXSetPropertyException(Messages.ConfirmationIsRequired, PXErrorLevel.Error));
