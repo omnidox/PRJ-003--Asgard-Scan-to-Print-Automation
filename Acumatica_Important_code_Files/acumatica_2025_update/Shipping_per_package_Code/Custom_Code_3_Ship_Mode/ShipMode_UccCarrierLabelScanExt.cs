@@ -266,71 +266,65 @@ namespace PX.Objects.SO.WMS
             {
                 PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] Long operation started for package {0}", packageLineNbr);
 
-                try
+                // ========================================================================
+                // CRITICAL: Activate filter scope BEFORE creating freshGraph
+                // This ensures Initialize() sees the active scope and replaces the view
+                // ========================================================================
+                using (CarrierPackageFilterScope.Activate(shipmentNbr, packageLineNbr))
                 {
-                    // Create fresh graph inside long operation
-                    SOShipmentEntry freshGraph = PXGraph.CreateInstance<SOShipmentEntry>();
+                    PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter] Activated filter scope. Shipment={0}, LineNbr={1}", shipmentNbr, packageLineNbr);
 
-                    // Reload shipment
-                    SOShipment reloadedShipment = SOShipment.PK.Find(freshGraph, shipmentNbr);
-                    if (reloadedShipment == null)
+                    try
                     {
-                        PXTrace.WriteError("[SHIP-MODE-UCC-LONGOP] Shipment {0} not found after reload", shipmentNbr);
-                        throw new PXException($"Shipment '{shipmentNbr}' could not be reloaded in the label generation operation.");
-                    }
-                    freshGraph.Document.Current = reloadedShipment;
+                        // Create fresh graph INSIDE filter scope
+                        // Initialize() will see active scope and replace Packages view
+                        SOShipmentEntry freshGraph = PXGraph.CreateInstance<SOShipmentEntry>();
+                        PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter] Fresh SOShipmentEntry created with active filter scope");
 
-                    // Reload package
-                    SOPackageDetailEx reloadedPackage = ReloadPackage(freshGraph, shipmentNbr, packageLineNbr.Value);
-                    if (reloadedPackage == null)
-                    {
-                        PXTrace.WriteError("[SHIP-MODE-UCC-LONGOP] Package {0} not found after reload", packageLineNbr);
-                        throw new PXException($"Package line {packageLineNbr} could not be reloaded in the label generation operation.");
-                    }
+                        // Reload shipment
+                        SOShipment reloadedShipment = SOShipment.PK.Find(freshGraph, shipmentNbr);
+                        if (reloadedShipment == null)
+                        {
+                            PXTrace.WriteError("[SHIP-MODE-UCC-LONGOP] Shipment {0} not found after reload", shipmentNbr);
+                            throw new PXException($"Shipment '{shipmentNbr}' could not be reloaded in the label generation operation.");
+                        }
+                        freshGraph.Document.Current = reloadedShipment;
 
-                    PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] Shipment and package reloaded successfully");
+                        // Reload package
+                        SOPackageDetailEx reloadedPackage = ReloadPackage(freshGraph, shipmentNbr, packageLineNbr.Value);
+                        if (reloadedPackage == null)
+                        {
+                            PXTrace.WriteError("[SHIP-MODE-UCC-LONGOP] Package {0} not found after reload", packageLineNbr);
+                            throw new PXException($"Package line {packageLineNbr} could not be reloaded in the label generation operation.");
+                        }
 
-                    // DUPLICATE PROTECTION CHECK #2
-                    // Another user/process might have generated the label between scan and operation start
-                    if (!string.IsNullOrWhiteSpace(reloadedPackage.TrackNumber))
-                    {
-                        PXTrace.WriteWarning("[SHIP-MODE-UCC-LONGOP] Package {0} now has tracking {1}, skipping generation", packageLineNbr, reloadedPackage.TrackNumber);
-                        return;
-                    }
+                        PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] Shipment and package reloaded successfully");
 
-                    if (TryGetExistingCarrierLabel(freshGraph, reloadedPackage) != null)
-                    {
-                        PXTrace.WriteWarning("[SHIP-MODE-UCC-LONGOP] Package {0} now has label file attached, skipping generation", packageLineNbr);
-                        return;
-                    }
+                        // DUPLICATE PROTECTION CHECK #2
+                        // Another user/process might have generated the label between scan and operation start
+                        if (!string.IsNullOrWhiteSpace(reloadedPackage.TrackNumber))
+                        {
+                            PXTrace.WriteWarning("[SHIP-MODE-UCC-LONGOP] Package {0} now has tracking {1}, skipping generation", packageLineNbr, reloadedPackage.TrackNumber);
+                            return;
+                        }
 
-                    // Generate carrier label
-                    var service = new PackageCarrierLabelService(freshGraph);
+                        if (TryGetExistingCarrierLabel(freshGraph, reloadedPackage) != null)
+                        {
+                            PXTrace.WriteWarning("[SHIP-MODE-UCC-LONGOP] Package {0} now has label file attached, skipping generation", packageLineNbr);
+                            return;
+                        }
 
-                    PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] Calling GenerateCarrierLabelForPackage for package {0}", packageLineNbr);
+                        // Log package count BEFORE filter execution
+                        var beforePackageCount = freshGraph.Packages.Select().RowCast<SOPackageDetailEx>().Count();
+                        PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter-BEFORE] Total packages visible: {0}", beforePackageCount);
+                        foreach (SOPackageDetailEx pkg in freshGraph.Packages.Select().RowCast<SOPackageDetailEx>())
+                        {
+                            PXTrace.WriteInformation(
+                                "[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter-BEFORE] LineNbr={0}, Confirmed={1}, TrackNumber={2}",
+                                pkg.LineNbr, pkg.Confirmed, pkg.TrackNumber ?? "(empty)");
+                        }
 
-                    // ========================================================================
-                    // CRITICAL: Wrap BuildRequest call with CarrierPackageFilterScope
-                    // This filters SOShipmentEntry.Packages view so CarrierRates.GetPackages()
-                    // only sees the selected package, not all packages on the shipment
-                    // ========================================================================
-                    PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter] Starting selected package filter. Shipment={0}, LineNbr={1}", shipmentNbr, packageLineNbr);
-
-                    // Log package count BEFORE filter
-                    var beforePackageCount = freshGraph.Packages.Select().RowCast<SOPackageDetailEx>().Count();
-                    PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter-BEFORE] Total packages visible: {0}", beforePackageCount);
-                    foreach (SOPackageDetailEx pkg in freshGraph.Packages.Select().RowCast<SOPackageDetailEx>())
-                    {
-                        PXTrace.WriteInformation(
-                            "[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter-BEFORE] LineNbr={0}, Confirmed={1}, TrackNumber={2}",
-                            pkg.LineNbr, pkg.Confirmed, pkg.TrackNumber ?? "(empty)");
-                    }
-
-                    using (CarrierPackageFilterScope.Activate(shipmentNbr, packageLineNbr))
-                    {
-                        PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter] Replaced Packages view with selected-package filtered view");
-
-                        // Log package count AFTER filter scope activation
+                        // Log package count AFTER filter has been applied (via Initialize on graph creation)
                         var afterPackageCount = freshGraph.Packages.Select().RowCast<SOPackageDetailEx>().Count();
                         PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter-AFTER] visible package count = {0}", afterPackageCount);
                         foreach (SOPackageDetailEx pkg in freshGraph.Packages.Select().RowCast<SOPackageDetailEx>())
@@ -340,10 +334,13 @@ namespace PX.Objects.SO.WMS
                                 pkg.LineNbr, pkg.Confirmed, pkg.TrackNumber ?? "(empty)");
                         }
 
+                        // Generate carrier label
+                        var service = new PackageCarrierLabelService(freshGraph);
+
+                        PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter] Calling GenerateCarrierLabelForPackage with filtered Packages view");
+
                         try
                         {
-                            PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter] Calling GenerateCarrierLabelForPackage with filtered Packages view");
-
                             FileInfo generatedFile = service.GenerateCarrierLabelForPackage(reloadedShipment, reloadedPackage);
 
                             if (generatedFile == null)
@@ -365,16 +362,18 @@ namespace PX.Objects.SO.WMS
                             PXTrace.WriteError("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter-ERROR] Stack: {0}", pxEx.StackTrace);
                             throw;
                         }
-                    }
 
-                    PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter] Restoring original Packages view");
+                        PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter] Filter scope ending (will restore)");
+                    }
+                    catch (Exception longOpEx)
+                    {
+                        PXTrace.WriteError("[SHIP-MODE-UCC-LONGOP] Exception in label generation: {0}", longOpEx.Message);
+                        PXTrace.WriteError("[SHIP-MODE-UCC-LONGOP] Stack: {0}", longOpEx.StackTrace);
+                        throw;
+                    }
                 }
-                catch (Exception longOpEx)
-                {
-                    PXTrace.WriteError("[SHIP-MODE-UCC-LONGOP] Exception in label generation: {0}", longOpEx.Message);
-                    PXTrace.WriteError("[SHIP-MODE-UCC-LONGOP] Stack: {0}", longOpEx.StackTrace);
-                    throw;
-                }
+
+                PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter] Filter scope exited - Packages view restored");
             });
 
             PXTrace.WriteInformation("[SHIP-MODE-UCC] ✅ Long operation queued for package {0}", packageLineNbr);

@@ -78,16 +78,16 @@ namespace PX.Objects.SO
 
             PXTrace.WriteInformation(
                 "[CARRIER-PKG-FILTER-EXT] ✅ Replacing Packages view with filtered delegate");
+            PXTrace.WriteInformation(
+                "[CARRIER-PKG-FILTER-EXT] Original BqlSelect type: {0}",
+                originalView.BqlSelect?.GetType().FullName ?? "null");
 
-            // Replace view with filtered delegate
+            // Replace view with filtered delegate, preserving original BQL
             Base.Views["Packages"] = new PXView(
                 Base,
-                false,
-                new BqlSelect(Base),
-                delegate (PXView view)
-                {
-                    return FilteredPackagesDelegate(originalView);
-                });
+                true,
+                originalView.BqlSelect,
+                new PXSelectDelegate(() => FilteredPackagesDelegate(originalView)));
 
             PXTrace.WriteInformation(
                 "[CARRIER-PKG-FILTER-EXT] ✅ Packages view successfully replaced");
@@ -103,14 +103,8 @@ namespace PX.Objects.SO
 
             if (!CarrierPackageFilterScope.IsActive)
             {
-                PXTrace.WriteInformation(
-                    "[CARRIER-PKG-FILTER-EXT.Delegate] Filter scope no longer active, returning all packages");
-                
-                // If scope became inactive, yield all rows from original view
-                foreach (object row in originalView.SelectMultiBound(new object[] { Base.Document.Current }))
-                {
-                    yield return row;
-                }
+                PXTrace.WriteWarning(
+                    "[CARRIER-PKG-FILTER-EXT.Delegate] Filter scope NOT active. Returning no packages (fail-safe)");
                 yield break;
             }
 
@@ -125,11 +119,7 @@ namespace PX.Objects.SO
             if (currentShipment == null)
             {
                 PXTrace.WriteWarning(
-                    "[CARRIER-PKG-FILTER-EXT.Delegate] Current shipment is null, returning all packages");
-                foreach (object row in originalView.SelectMultiBound(new object[] { Base.Document.Current }))
-                {
-                    yield return row;
-                }
+                    "[CARRIER-PKG-FILTER-EXT.Delegate] Current shipment is null. Returning no packages (fail-safe)");
                 yield break;
             }
 
@@ -138,37 +128,36 @@ namespace PX.Objects.SO
             if (!string.Equals(currentShipmentNbr, filterShipmentNbr, StringComparison.OrdinalIgnoreCase))
             {
                 PXTrace.WriteWarning(
-                    "[CARRIER-PKG-FILTER-EXT.Delegate] Shipment mismatch: current={0}, filter={1}, returning all packages",
+                    "[CARRIER-PKG-FILTER-EXT.Delegate] Shipment mismatch: current={0}, filter={1}. Returning no packages (fail-safe)",
                     currentShipmentNbr, filterShipmentNbr);
-                foreach (object row in originalView.SelectMultiBound(new object[] { Base.Document.Current }))
-                {
-                    yield return row;
-                }
                 yield break;
             }
 
             // Yield only rows matching the selected package LineNbr
-            int yieldCount = 0;
+            int filteredCount = 0;
+            int totalCount = 0;
+
             foreach (object rowObj in originalView.SelectMultiBound(new object[] { currentShipment }))
             {
-                SOPackageDetailEx package = rowObj as SOPackageDetailEx;
+                // Unwrap SOPackageDetailEx from the row (handles both simple and PXResult rows)
+                SOPackageDetailEx package = PXResult.Unwrap<SOPackageDetailEx>(rowObj);
                 if (package == null)
                 {
-                    PXTrace.WriteWarning(
-                        "[CARRIER-PKG-FILTER-EXT.Delegate] Row is not SOPackageDetailEx, yielding anyway");
-                    yield return rowObj;
-                    yieldCount++;
+                    PXTrace.WriteInformation(
+                        "[CARRIER-PKG-FILTER-EXT.Delegate] Row does not contain SOPackageDetailEx, skipping");
                     continue;
                 }
+
+                totalCount++;
 
                 if (CarrierPackageFilterScope.Matches(currentShipmentNbr, package.LineNbr))
                 {
                     PXTrace.WriteInformation(
-                        "[CARRIER-PKG-FILTER-EXT.Delegate] ✅ Package LineNbr={0} MATCHES filter, yielding",
-                        package.LineNbr);
+                        "[CARRIER-PKG-FILTER-EXT.Delegate] ✅ Package LineNbr={0} MATCHES filter, yielding row type {1}",
+                        package.LineNbr, rowObj.GetType().Name);
 
-                    yield return rowObj;
-                    yieldCount++;
+                    yield return rowObj;  // ✅ Yield the entire row (PXResult), not just the package
+                    filteredCount++;
                 }
                 else
                 {
@@ -179,8 +168,8 @@ namespace PX.Objects.SO
             }
 
             PXTrace.WriteInformation(
-                "[CARRIER-PKG-FILTER-EXT.Delegate] ✅ Filtered delegate complete. Yielded {0} package(s)",
-                yieldCount);
+                "[CARRIER-PKG-FILTER-EXT.Delegate] ✅ Filtered delegate complete. Yielded {0} out of {1} package(s)",
+                filteredCount, totalCount);
         }
     }
 }
