@@ -184,7 +184,7 @@ namespace PX.Objects.SO
                         PXTrace.WriteWarning(
                             "[CARRIER-PKG-FILTER-RATES] Selected package LineNbr={0} is not confirmed",
                             package.LineNbr);
-                        Base.Packages.Cache.RaiseExceptionHandling(
+                        Base.Packages.Cache.RaiseExceptionHandling<SOPackageDetail.confirmed>(
                             package,
                             package.Confirmed,
                             new PXSetPropertyException(Messages.ConfirmationIsRequired, PXErrorLevel.Error));
