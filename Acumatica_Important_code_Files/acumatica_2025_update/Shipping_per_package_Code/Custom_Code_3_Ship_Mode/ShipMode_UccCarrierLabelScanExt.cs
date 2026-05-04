@@ -309,20 +309,65 @@ namespace PX.Objects.SO.WMS
 
                     PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] Calling GenerateCarrierLabelForPackage for package {0}", packageLineNbr);
 
-                    FileInfo generatedFile = service.GenerateCarrierLabelForPackage(reloadedShipment, reloadedPackage);
+                    // ========================================================================
+                    // CRITICAL: Wrap BuildRequest call with CarrierPackageFilterScope
+                    // This filters SOShipmentEntry.Packages view so CarrierRates.GetPackages()
+                    // only sees the selected package, not all packages on the shipment
+                    // ========================================================================
+                    PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter] Starting selected package filter. Shipment={0}, LineNbr={1}", shipmentNbr, packageLineNbr);
 
-                    if (generatedFile == null)
+                    // Log package count BEFORE filter
+                    var beforePackageCount = freshGraph.Packages.Select().RowCast<SOPackageDetailEx>().Count();
+                    PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter-BEFORE] Total packages visible: {0}", beforePackageCount);
+                    foreach (SOPackageDetailEx pkg in freshGraph.Packages.Select().RowCast<SOPackageDetailEx>())
                     {
-                        PXTrace.WriteWarning("[SHIP-MODE-UCC-LONGOP] GenerateCarrierLabelForPackage returned null");
-                        return;
+                        PXTrace.WriteInformation(
+                            "[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter-BEFORE] LineNbr={0}, Confirmed={1}, TrackNumber={2}",
+                            pkg.LineNbr, pkg.Confirmed, pkg.TrackNumber ?? "(empty)");
                     }
 
-                    PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] ✅ Label generated: {0}", generatedFile.Name);
+                    using (CarrierPackageFilterScope.Activate(shipmentNbr, packageLineNbr))
+                    {
+                        PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter] Replaced Packages view with selected-package filtered view");
 
-                    // Output the generated file
-                    OutputSingleGeneratedLabelFile(generatedFile);
+                        // Log package count AFTER filter scope activation
+                        var afterPackageCount = freshGraph.Packages.Select().RowCast<SOPackageDetailEx>().Count();
+                        PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter-AFTER] visible package count = {0}", afterPackageCount);
+                        foreach (SOPackageDetailEx pkg in freshGraph.Packages.Select().RowCast<SOPackageDetailEx>())
+                        {
+                            PXTrace.WriteInformation(
+                                "[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter-AFTER] LineNbr={0}, Confirmed={1}, TrackNumber={2}",
+                                pkg.LineNbr, pkg.Confirmed, pkg.TrackNumber ?? "(empty)");
+                        }
 
-                    PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] ✅ Label file output completed");
+                        try
+                        {
+                            PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter] Calling GenerateCarrierLabelForPackage with filtered Packages view");
+
+                            FileInfo generatedFile = service.GenerateCarrierLabelForPackage(reloadedShipment, reloadedPackage);
+
+                            if (generatedFile == null)
+                            {
+                                PXTrace.WriteWarning("[SHIP-MODE-UCC-LONGOP] GenerateCarrierLabelForPackage returned null");
+                                return;
+                            }
+
+                            PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] ✅ Label generated: {0}", generatedFile.Name);
+
+                            // Output the generated file
+                            OutputSingleGeneratedLabelFile(generatedFile);
+
+                            PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] ✅ Label file output completed");
+                        }
+                        catch (PXException pxEx)
+                        {
+                            PXTrace.WriteError("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter-ERROR] BuildRequest failed with PXException: {0}", pxEx.Message);
+                            PXTrace.WriteError("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter-ERROR] Stack: {0}", pxEx.StackTrace);
+                            throw;
+                        }
+                    }
+
+                    PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] [CarrierPkgFilter] Restoring original Packages view");
                 }
                 catch (Exception longOpEx)
                 {
