@@ -155,9 +155,20 @@ namespace PX.Objects.SO
                 CarrierPackageFilterScope.IsActive);
 
             // ========================================================================
-            // Let native Acumatica shipping run
+            // PREVENTIVE FIX: Activate ConfirmShipmentCarrierFilterScope
+            // This signals to GetPackages to filter out already-tracked packages
             // ========================================================================
-            baseMethod(shiporder);
+            using (ConfirmShipmentCarrierFilterScope.Activate(shiporder.ShipmentNbr))
+            {
+                PXTrace.WriteInformation(
+                    "[SHIP-PACKAGES-OVERRIDE] ConfirmShipmentCarrierFilterScope activated");
+
+                // Let native Acumatica shipping run (with filter scope active)
+                baseMethod(shiporder);
+
+                PXTrace.WriteInformation(
+                    "[SHIP-PACKAGES-OVERRIDE] ConfirmShipmentCarrierFilterScope exiting");
+            }
 
             // ========================================================================
             // DIAGNOSTIC TRACE: AFTER baseMethod - Log state after native processing

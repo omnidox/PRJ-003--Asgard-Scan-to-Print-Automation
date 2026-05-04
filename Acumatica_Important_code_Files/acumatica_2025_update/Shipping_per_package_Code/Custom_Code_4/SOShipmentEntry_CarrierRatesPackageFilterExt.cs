@@ -76,99 +76,224 @@ namespace PX.Objects.SO
                 CarrierPackageFilterScope.CurrentSelectedPackageLineNbr,
                 carrier?.CarrierID ?? "(null)");
 
-            // If scope not active, use base unchanged
-            if (!CarrierPackageFilterScope.IsActive)
+            // ========================================================================
+            // PATH 1: Scope is ACTIVE - Manual print or WMS scan path
+            // ========================================================================
+            if (CarrierPackageFilterScope.IsActive)
             {
-                PXTrace.WriteWarning(
-                    "[GET-PACKAGES-OVERRIDE] Scope is INACTIVE - calling base GetPackages (will return ALL packages)");
-                var result = baseMethod(shiporder, carrier, plugin);
-                // ========================================================================
-                // CRITICAL: Log package count returned by base - this shows scope bypass
-                // ========================================================================
-                PXTrace.WriteWarning(
-                    "[GET-PACKAGES-OVERRIDE] ⚠️ Base method returned {0} CarrierBox items (scope was inactive, so ALL packages included)",
-                    result?.Count ?? 0);
-                return result;
-            }
-
-            // Validate shipment parameter
-            if (shiporder?.ShipmentNbr == null)
-            {
-                PXTrace.WriteWarning(
-                    "[GET-PACKAGES-OVERRIDE] Shipment parameter is null. Calling base GetPackages.");
-                return baseMethod(shiporder, carrier, plugin);
-            }
-
-            // Check if scope applies to this shipment
-            if (!CarrierPackageFilterScope.AppliesToShipment(shiporder.ShipmentNbr))
-            {
-                PXTrace.WriteWarning(
-                    "[GET-PACKAGES-OVERRIDE] Scope shipment mismatch. ScopeShipment={0}, MethodShipment={1}. Calling base.",
-                    CarrierPackageFilterScope.CurrentShipmentNbr,
-                    shiporder?.ShipmentNbr);
-                return baseMethod(shiporder, carrier, plugin);
-            }
-
-            // Scope is active and applies to this shipment - filter before validation
-            PXTrace.WriteInformation(
-                "[GET-PACKAGES-OVERRIDE] Scope is ACTIVE and applies to shipment {0}, selected line {1}",
-                CarrierPackageFilterScope.CurrentShipmentNbr,
-                CarrierPackageFilterScope.CurrentSelectedPackageLineNbr);
-
-            try
-            {
-                // Query all packages for shipment
-                List<SOPackageDetailEx> rawPackages = PXSelect<
-                    SOPackageDetailEx,
-                    Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
-                    .Select(Base, shiporder.ShipmentNbr)
-                    .RowCast<SOPackageDetailEx>()
-                    .ToList();
-
                 PXTrace.WriteInformation(
-                    "[GET-PACKAGES-OVERRIDE] Raw package count for shipment {0}: {1}",
-                    shiporder.ShipmentNbr,
-                    rawPackages.Count);
+                    "[GET-PACKAGES-OVERRIDE] Scope active, preserving selected-package behavior");
 
-                // Filter to only the selected package BEFORE validation
-                List<SOPackageDetailEx> filteredPackages = rawPackages
-                    .Where(p => CarrierPackageFilterScope.Matches(shiporder.ShipmentNbr, p.LineNbr))
-                    .ToList();
-
-                PXTrace.WriteInformation(
-                    "[GET-PACKAGES-OVERRIDE] Filtered package count: {0}. Lines: {1}",
-                    filteredPackages.Count,
-                    filteredPackages.Count > 0 ? string.Join(",", filteredPackages.Select(p => p.LineNbr)) : "(none)");
-
-                // Defensive: If scope is active but no package matches, fail safely
-                if (filteredPackages.Count == 0)
+                // Validate shipment parameter
+                if (shiporder?.ShipmentNbr == null)
                 {
-                    throw new PXException(
-                        "Carrier package filter was active for shipment {0}, line {1}, but no matching package was found.",
-                        CarrierPackageFilterScope.CurrentShipmentNbr,
-                        CarrierPackageFilterScope.CurrentSelectedPackageLineNbr);
+                    PXTrace.WriteWarning(
+                        "[GET-PACKAGES-OVERRIDE] Shipment parameter is null. Calling base GetPackages.");
+                    return baseMethod(shiporder, carrier, plugin);
                 }
 
-                // Validate only the filtered packages (not all packages)
-                var result = ValidateAndBuildCarrierPackages(filteredPackages, carrier, plugin);
-                // ========================================================================
-                // CRITICAL: Log package count returned from filtered list
-                // ========================================================================
+                // Check if scope applies to this shipment
+                if (!CarrierPackageFilterScope.AppliesToShipment(shiporder.ShipmentNbr))
+                {
+                    PXTrace.WriteWarning(
+                        "[GET-PACKAGES-OVERRIDE] Scope shipment mismatch. ScopeShipment={0}, MethodShipment={1}. Calling base.",
+                        CarrierPackageFilterScope.CurrentShipmentNbr,
+                        shiporder?.ShipmentNbr);
+                    return baseMethod(shiporder, carrier, plugin);
+                }
+
+                // Scope is active and applies to this shipment - filter before validation
                 PXTrace.WriteInformation(
-                    "[GET-PACKAGES-OVERRIDE] ✅ Returning {0} CarrierBox item(s) from filtered packages (scope was active)",
-                    result?.Count ?? 0);
-                return result;
+                    "[GET-PACKAGES-OVERRIDE] Scope is ACTIVE and applies to shipment {0}, selected line {1}",
+                    CarrierPackageFilterScope.CurrentShipmentNbr,
+                    CarrierPackageFilterScope.CurrentSelectedPackageLineNbr);
+
+                try
+                {
+                    // Query all packages for shipment
+                    List<SOPackageDetailEx> rawPackages = PXSelect<
+                        SOPackageDetailEx,
+                        Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
+                        .Select(Base, shiporder.ShipmentNbr)
+                        .RowCast<SOPackageDetailEx>()
+                        .ToList();
+
+                    PXTrace.WriteInformation(
+                        "[GET-PACKAGES-OVERRIDE] Raw package count for shipment {0}: {1}",
+                        shiporder.ShipmentNbr,
+                        rawPackages.Count);
+
+                    // Filter to only the selected package BEFORE validation
+                    List<SOPackageDetailEx> filteredPackages = rawPackages
+                        .Where(p => CarrierPackageFilterScope.Matches(shiporder.ShipmentNbr, p.LineNbr))
+                        .ToList();
+
+                    PXTrace.WriteInformation(
+                        "[GET-PACKAGES-OVERRIDE] Filtered package count: {0}. Lines: {1}",
+                        filteredPackages.Count,
+                        filteredPackages.Count > 0 ? string.Join(",", filteredPackages.Select(p => p.LineNbr)) : "(none)");
+
+                    // Defensive: If scope is active but no package matches, fail safely
+                    if (filteredPackages.Count == 0)
+                    {
+                        throw new PXException(
+                            "Carrier package filter was active for shipment {0}, line {1}, but no matching package was found.",
+                            CarrierPackageFilterScope.CurrentShipmentNbr,
+                            CarrierPackageFilterScope.CurrentSelectedPackageLineNbr);
+                    }
+
+                    // Validate only the filtered packages (not all packages)
+                    var result = ValidateAndBuildCarrierPackages(filteredPackages, carrier, plugin);
+                    // ========================================================================
+                    // CRITICAL: Log package count returned from filtered list
+                    // ========================================================================
+                    PXTrace.WriteInformation(
+                        "[GET-PACKAGES-OVERRIDE] ✅ Returning {0} CarrierBox item(s) from filtered packages (scope was active)",
+                        result?.Count ?? 0);
+                    return result;
+                }
+                catch (Exception ex)
+                {
+                    PXTrace.WriteError(
+                        "[GET-PACKAGES-OVERRIDE] Exception during filtered GetPackages: {0}",
+                        ex.Message);
+                    PXTrace.WriteError(
+                        "[GET-PACKAGES-OVERRIDE] Stack: {0}",
+                        ex.StackTrace);
+                    throw;
+                }
             }
-            catch (Exception ex)
+
+            // ========================================================================
+            // PATH 2: Scope is INACTIVE - Check for Confirm Shipment filter
+            // ========================================================================
+            PXTrace.WriteInformation("[GET-PACKAGES-OVERRIDE] Scope is INACTIVE");
+
+            // SAFE CHECK: Only filter if ConfirmShipmentCarrierFilterScope is active
+            // This prevents filtering during other carrier operations
+            if (ConfirmShipmentCarrierFilterScope.IsActive)
             {
-                PXTrace.WriteError(
-                    "[GET-PACKAGES-OVERRIDE] Exception during filtered GetPackages: {0}",
-                    ex.Message);
-                PXTrace.WriteError(
-                    "[GET-PACKAGES-OVERRIDE] Stack: {0}",
-                    ex.StackTrace);
-                throw;
+                PXTrace.WriteInformation("[CONFIRM-CARRIER-FILTER] Processing Confirm Shipment carrier flow");
+
+                // Validate shipment parameter
+                if (shiporder?.ShipmentNbr == null)
+                {
+                    PXTrace.WriteWarning(
+                        "[CONFIRM-CARRIER-FILTER] Shipment parameter is null. Calling base GetPackages.");
+                    return baseMethod(shiporder, carrier, plugin);
+                }
+
+                // Validate scope applies to this shipment
+                if (!ConfirmShipmentCarrierFilterScope.AppliesToShipment(shiporder.ShipmentNbr))
+                {
+                    PXTrace.WriteWarning(
+                        "[CONFIRM-CARRIER-FILTER] Scope shipment mismatch. ScopeShipment={0}, MethodShipment={1}. Calling base.",
+                        ConfirmShipmentCarrierFilterScope.CurrentShipmentNbr,
+                        shiporder?.ShipmentNbr);
+                    return baseMethod(shiporder, carrier, plugin);
+                }
+
+                try
+                {
+                    // Query ALL packages for the shipment
+                    List<SOPackageDetailEx> allPackages = PXSelect<
+                        SOPackageDetailEx,
+                        Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
+                        .Select(Base, shiporder.ShipmentNbr)
+                        .RowCast<SOPackageDetailEx>()
+                        .ToList();
+
+                    PXTrace.WriteInformation(
+                        "[CONFIRM-CARRIER-FILTER] Raw package count: {0}",
+                        allPackages.Count);
+
+                    // ========================================================================
+                    // PREVENTIVE FIX: Filter to packages that DON'T have tracking yet
+                    // ========================================================================
+                    List<SOPackageDetailEx> alreadyTrackedPackages = allPackages
+                        .Where(p => IsAlreadyCarrierLabeled(p))
+                        .ToList();
+
+                    List<SOPackageDetailEx> packagesNeedingTracking = allPackages
+                        .Where(p => !IsAlreadyCarrierLabeled(p))
+                        .ToList();
+
+                    PXTrace.WriteInformation(
+                        "[CONFIRM-CARRIER-FILTER] Already tracked package count: {0}",
+                        alreadyTrackedPackages.Count);
+
+                    PXTrace.WriteInformation(
+                        "[CONFIRM-CARRIER-FILTER] Missing tracking package count: {0}",
+                        packagesNeedingTracking.Count);
+
+                    // Log each package's action
+                    foreach (var pkg in alreadyTrackedPackages)
+                    {
+                        PXTrace.WriteInformation(
+                            "[CONFIRM-CARRIER-FILTER] LineNbr={0}, TrackNumber={1}, Action=SKIP_ALREADY_TRACKED",
+                            pkg.LineNbr,
+                            pkg.TrackNumber ?? "(empty)");
+                    }
+
+                    foreach (var pkg in packagesNeedingTracking)
+                    {
+                        PXTrace.WriteInformation(
+                            "[CONFIRM-CARRIER-FILTER] LineNbr={0}, TrackNumber=<empty>, Action=INCLUDE_MISSING_TRACKING",
+                            pkg.LineNbr);
+                    }
+
+                    // ========================================================================
+                    // KEY DECISION: If all packages already have tracking, return zero items
+                    // ========================================================================
+                    if (packagesNeedingTracking.Count == 0)
+                    {
+                        PXTrace.WriteInformation(
+                            "[CONFIRM-CARRIER-FILTER] All packages already have tracking. Returning 0 CarrierBox items to prevent FedEx regeneration.");
+                        return new List<CarrierBox>(); // Return empty list - FedEx will not be called
+                    }
+
+                    // ========================================================================
+                    // Otherwise, process only packages that need tracking
+                    // ========================================================================
+                    var filteredResult = ValidateAndBuildCarrierPackages(packagesNeedingTracking, carrier, plugin);
+
+                    PXTrace.WriteInformation(
+                        "[CONFIRM-CARRIER-FILTER] Returning {0} CarrierBox item(s)",
+                        filteredResult?.Count ?? 0);
+
+                    return filteredResult;
+                }
+                catch (Exception ex)
+                {
+                    PXTrace.WriteError(
+                        "[CONFIRM-CARRIER-FILTER] Exception during Confirm Shipment carrier filtering: {0}",
+                        ex.Message);
+                    PXTrace.WriteError(
+                        "[CONFIRM-CARRIER-FILTER] Stack: {0}",
+                        ex.StackTrace);
+                    throw;
+                }
             }
+
+            // ========================================================================
+            // Confirm Shipment filter NOT active - use base behavior unchanged
+            // ========================================================================
+            PXTrace.WriteInformation(
+                "[GET-PACKAGES-OVERRIDE] ConfirmShipmentCarrierFilterScope is INACTIVE - calling base GetPackages");
+            var result = baseMethod(shiporder, carrier, plugin);
+            PXTrace.WriteWarning(
+                "[GET-PACKAGES-OVERRIDE] Base method returned {0} CarrierBox items",
+                result?.Count ?? 0);
+            return result;
+        }
+
+        /// <summary>
+        /// Helper: Determine if a package already has carrier tracking.
+        /// Checks TrackNumber (primary indicator of carrier processing).
+        /// </summary>
+        private bool IsAlreadyCarrierLabeled(SOPackageDetailEx package)
+        {
+            return !string.IsNullOrWhiteSpace(package.TrackNumber);
         }
 
         /// <summary>
