@@ -143,14 +143,14 @@ namespace PX.Objects.SO
                     }
 
                     // Validate only the filtered packages (not all packages)
-                    var result = ValidateAndBuildCarrierPackages(filteredPackages, carrier, plugin);
+                    var selectedPackageResult = ValidateAndBuildCarrierPackages(filteredPackages, carrier, plugin);
                     // ========================================================================
                     // CRITICAL: Log package count returned from filtered list
                     // ========================================================================
                     PXTrace.WriteInformation(
                         "[GET-PACKAGES-OVERRIDE] ✅ Returning {0} CarrierBox item(s) from filtered packages (scope was active)",
-                        result?.Count ?? 0);
-                    return result;
+                        selectedPackageResult?.Count ?? 0);
+                    return selectedPackageResult;
                 }
                 catch (Exception ex)
                 {
@@ -280,11 +280,11 @@ namespace PX.Objects.SO
             // ========================================================================
             PXTrace.WriteInformation(
                 "[GET-PACKAGES-OVERRIDE] ConfirmShipmentCarrierFilterScope is INACTIVE - calling base GetPackages");
-            var result = baseMethod(shiporder, carrier, plugin);
+            var baseResult = baseMethod(shiporder, carrier, plugin);
             PXTrace.WriteWarning(
                 "[GET-PACKAGES-OVERRIDE] Base method returned {0} CarrierBox items",
-                result?.Count ?? 0);
-            return result;
+                baseResult?.Count ?? 0);
+            return baseResult;
         }
 
         /// <summary>
