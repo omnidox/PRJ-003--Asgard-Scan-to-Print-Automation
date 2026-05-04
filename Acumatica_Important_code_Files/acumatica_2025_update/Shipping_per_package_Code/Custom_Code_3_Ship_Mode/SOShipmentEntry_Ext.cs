@@ -18,24 +18,70 @@ namespace PX.Objects.SO
             SOShipment shipment = Base.Document.Current;
             SOPackageDetailEx package = Base.Packages.Current;
 
-            var svc = new PackageCarrierLabelService(Base);
-            svc.ValidatePackageForGeneration(shipment, package);
-
-            FileInfo existingFile = svc.TryGetExistingCarrierLabel(package);
-            if (existingFile != null)
+            if (shipment == null || package == null)
             {
-                svc.PrintSingleFile(existingFile);
-                return adapter.Get();
+                throw new PXException("Shipment and package must be selected to generate labels.");
             }
 
-            FileInfo generatedFile = svc.GenerateCarrierLabelForPackage(shipment, package);
-            if (generatedFile != null)
-            {
-                svc.PrintSingleFile(generatedFile);
-                return adapter.Get();
-            }
+            PXTrace.WriteInformation(
+                "[MANUAL-PRINT] Starting manual package label generation. Shipment={0}, LineNbr={1}",
+                shipment.ShipmentNbr,
+                package.LineNbr);
 
-            throw new PXException($"No label could be found or generated for package line {package.LineNbr}.");
+            // ========================================================================
+            // CRITICAL: Activate filter scope for manual button path
+            // This ensures CarrierRates.GetPackages override filters packages
+            // ========================================================================
+            using (CarrierPackageFilterScope.Activate(shipment.ShipmentNbr, package.LineNbr))
+            {
+                PXTrace.WriteInformation(
+                    "[MANUAL-PRINT] [CarrierPkgFilter] Activated filter scope. Shipment={0}, LineNbr={1}",
+                    shipment.ShipmentNbr,
+                    package.LineNbr);
+
+                try
+                {
+                    var svc = new PackageCarrierLabelService(Base);
+                    svc.ValidatePackageForGeneration(shipment, package);
+
+                    FileInfo existingFile = svc.TryGetExistingCarrierLabel(package);
+                    if (existingFile != null)
+                    {
+                        PXTrace.WriteInformation(
+                            "[MANUAL-PRINT] Using existing label file: {0}",
+                            existingFile.Name);
+                        svc.PrintSingleFile(existingFile);
+                        return adapter.Get();
+                    }
+
+                    FileInfo generatedFile = svc.GenerateCarrierLabelForPackage(shipment, package);
+                    if (generatedFile != null)
+                    {
+                        PXTrace.WriteInformation(
+                            "[MANUAL-PRINT] ✅ Label generated: {0}",
+                            generatedFile.Name);
+                        svc.PrintSingleFile(generatedFile);
+                        return adapter.Get();
+                    }
+
+                    throw new PXException($"No label could be found or generated for package line {package.LineNbr}.");
+                }
+                catch (PXException pxEx)
+                {
+                    PXTrace.WriteError(
+                        "[MANUAL-PRINT] [CarrierPkgFilter-ERROR] PXException in manual print: {0}",
+                        pxEx.Message);
+                    PXTrace.WriteError(
+                        "[MANUAL-PRINT] [CarrierPkgFilter-ERROR] Stack: {0}",
+                        pxEx.StackTrace);
+                    throw;
+                }
+                finally
+                {
+                    PXTrace.WriteInformation(
+                        "[MANUAL-PRINT] [CarrierPkgFilter] Filter scope exiting");
+                }
+            }
         }
 
         protected virtual void _(Events.RowSelected<SOShipment> e)

@@ -36,6 +36,31 @@ namespace PX.Objects.SO
         public static int? SelectedPackageLineNbr => _state.Value?.SelectedPackageLineNbr;
 
         /// <summary>
+        /// Read-only property: Current active shipment number (safe for extension access)
+        /// </summary>
+        public static string CurrentShipmentNbr => _state.Value?.ShipmentNbr;
+
+        /// <summary>
+        /// Read-only property: Current selected package line number (safe for extension access)
+        /// </summary>
+        public static int? CurrentSelectedPackageLineNbr => _state.Value?.SelectedPackageLineNbr;
+
+        /// <summary>
+        /// Check if the active filter applies to a specific shipment.
+        /// Returns true if filter is active and shipment matches the active scope.
+        /// </summary>
+        public static bool AppliesToShipment(string shipmentNbr)
+        {
+            if (!IsActive)
+                return false;
+
+            if (string.IsNullOrWhiteSpace(shipmentNbr) || string.IsNullOrWhiteSpace(CurrentShipmentNbr))
+                return false;
+
+            return string.Equals(shipmentNbr, CurrentShipmentNbr, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         /// Check if a package matches the active filter.
         /// Returns true if filter is active and package LineNbr matches the selected package.
         /// </summary>
