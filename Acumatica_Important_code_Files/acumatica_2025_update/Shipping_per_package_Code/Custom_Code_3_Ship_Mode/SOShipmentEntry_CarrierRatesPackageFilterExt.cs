@@ -41,7 +41,7 @@ namespace PX.Objects.SO
     {
         public static bool IsActive() => true;
 
-        public delegate IList GetPackagesDelegate(
+        public delegate IList<CarrierBox> GetPackagesDelegate(
             SOShipment shiporder,
             Carrier carrier,
             CarrierPlugin plugin);
@@ -60,7 +60,7 @@ namespace PX.Objects.SO
         ///   - Call base method unchanged
         /// </summary>
         [PXOverride]
-        protected virtual IList GetPackages(
+        protected virtual IList<CarrierBox> GetPackages(
             SOShipment shiporder,
             Carrier carrier,
             CarrierPlugin plugin,
@@ -157,7 +157,7 @@ namespace PX.Objects.SO
         /// Validate filtered packages and build carrier boxes.
         /// This is the core logic from the original GetPackages but operating on filtered packages only.
         /// </summary>
-        private IList ValidateAndBuildCarrierPackages(
+        private IList<CarrierBox> ValidateAndBuildCarrierPackages(
             List<SOPackageDetailEx> packages,
             Carrier carrier,
             CarrierPlugin plugin)
