@@ -104,24 +104,148 @@ namespace PX.Objects.SO
                 return;
             }
 
+            // ========================================================================
+            // DIAGNOSTIC TRACE: PHASE 1 - CONFIRM SHIPMENT BEHAVIOR
+            // ========================================================================
+            PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] ENTERED ShipPackages for shipment {0}", shiporder.ShipmentNbr);
+
+            // Log BEFORE state - all packages before baseMethod
+            PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] ========== BEFORE baseMethod ==========");
+            foreach (SOPackageDetailEx pkg in PXSelect<
+                SOPackageDetailEx,
+                Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
+                .Select(Base, shiporder.ShipmentNbr))
+            {
+                FileInfo lblFile = null;
+                try
+                {
+                    lblFile = new PackageCarrierLabelService(Base).TryGetExistingCarrierLabel(pkg);
+                }
+                catch { }
+
+                PXTrace.WriteInformation(
+                    "[SHIP-PACKAGES-OVERRIDE] BEFORE - LineNbr={0}, TrackNumber={1}, TrackUrl={2}, TrackData={3}, HasLabelFile={4}, Confirmed={5}",
+                    pkg.LineNbr,
+                    pkg.TrackNumber ?? "(empty)",
+                    pkg.TrackUrl ?? "(empty)",
+                    pkg.TrackData ?? "(empty)",
+                    lblFile != null ? "YES" : "NO",
+                    pkg.Confirmed);
+            }
+
             var svc = new PackageCarrierLabelService(Base);
 
             // Capture tracking values for packages that already have labels
             var preserved = svc.CaptureTrackingForPackagesWithExistingLabels(shiporder.ShipmentNbr);
 
+            PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] Captured {0} packages for preservation", preserved.Count);
+            foreach (var kvp in preserved)
+            {
+                PXTrace.WriteInformation(
+                    "[SHIP-PACKAGES-OVERRIDE] Preserved - LineNbr={0}, TrackNumber={1}, TrackUrl={2}, TrackData={3}",
+                    kvp.Key,
+                    kvp.Value.TrackNumber ?? "(empty)",
+                    kvp.Value.TrackUrl ?? "(empty)",
+                    kvp.Value.TrackData ?? "(empty)");
+            }
+
+            // CRITICAL: Log filter scope state before calling baseMethod
+            PXTrace.WriteInformation(
+                "[SHIP-PACKAGES-OVERRIDE] CarrierPackageFilterScope.IsActive={0} (about to call baseMethod)",
+                CarrierPackageFilterScope.IsActive);
+
+            // ========================================================================
             // Let native Acumatica shipping run
+            // ========================================================================
             baseMethod(shiporder);
+
+            // ========================================================================
+            // DIAGNOSTIC TRACE: AFTER baseMethod - Log state after native processing
+            // ========================================================================
+            PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] ========== AFTER baseMethod ==========");
+            foreach (SOPackageDetailEx pkg in PXSelect<
+                SOPackageDetailEx,
+                Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
+                .Select(Base, shiporder.ShipmentNbr))
+            {
+                FileInfo lblFile = null;
+                try
+                {
+                    lblFile = new PackageCarrierLabelService(Base).TryGetExistingCarrierLabel(pkg);
+                }
+                catch { }
+
+                PXTrace.WriteInformation(
+                    "[SHIP-PACKAGES-OVERRIDE] AFTER - LineNbr={0}, TrackNumber={1}, TrackUrl={2}, TrackData={3}, HasLabelFile={4}, Confirmed={5}",
+                    pkg.LineNbr,
+                    pkg.TrackNumber ?? "(empty)",
+                    pkg.TrackUrl ?? "(empty)",
+                    pkg.TrackData ?? "(empty)",
+                    lblFile != null ? "YES" : "NO",
+                    pkg.Confirmed);
+            }
 
             // Restore tracking values only for packages we want preserved
             if (preserved.Count > 0)
             {
+                PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] Attempting restore for {0} packages", preserved.Count);
+
                 Base.Document.Current = Base.Document.Search<SOShipment.shipmentNbr>(shiporder.ShipmentNbr);
 
                 svc.RestoreTrackingForPackages(shiporder.ShipmentNbr, preserved);
 
+                // ========================================================================
+                // CRITICAL: Log AFTER restore to verify restore actually worked
+                // ========================================================================
+                PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] ========== AFTER RestoreTracking ==========");
+                foreach (SOPackageDetailEx pkg in PXSelect<
+                    SOPackageDetailEx,
+                    Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
+                    .Select(Base, shiporder.ShipmentNbr))
+                {
+                    PXTrace.WriteInformation(
+                        "[SHIP-PACKAGES-OVERRIDE] RESTORED - LineNbr={0}, TrackNumber={1}, TrackUrl={2}, TrackData={3}",
+                        pkg.LineNbr,
+                        pkg.TrackNumber ?? "(empty)",
+                        pkg.TrackUrl ?? "(empty)",
+                        pkg.TrackData ?? "(empty)");
+                }
+
+                // ========================================================================
+                // CRITICAL: Log Base.IsDirty state - if false, Save won't actually save!
+                // ========================================================================
+                PXTrace.WriteWarning("[SHIP-PACKAGES-OVERRIDE] Base.IsDirty BEFORE Save.Press = {0}", Base.IsDirty);
+
                 if (Base.IsDirty)
+                {
+                    PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] Graph is dirty, pressing Save");
                     Base.Save.Press();
+                    PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] Save.Press() called");
+                }
+                else
+                {
+                    PXTrace.WriteWarning("[SHIP-PACKAGES-OVERRIDE] ⚠️ Graph is NOT dirty after restore - Save.Press() will NOT persist changes!");
+                }
+
+                // Log final state AFTER Save attempt
+                PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] ========== AFTER Save.Press ==========");
+                foreach (SOPackageDetailEx pkg in PXSelect<
+                    SOPackageDetailEx,
+                    Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
+                    .Select(Base, shiporder.ShipmentNbr))
+                {
+                    PXTrace.WriteInformation(
+                        "[SHIP-PACKAGES-OVERRIDE] FINAL - LineNbr={0}, TrackNumber={1}",
+                        pkg.LineNbr,
+                        pkg.TrackNumber ?? "(empty)");
+                }
             }
+            else
+            {
+                PXTrace.WriteWarning("[SHIP-PACKAGES-OVERRIDE] No packages were captured for preservation - tracking may be overwritten");
+            }
+
+            PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] EXITING ShipPackages override");
         }
     }
 }

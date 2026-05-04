@@ -66,26 +66,36 @@ namespace PX.Objects.SO
             CarrierPlugin plugin,
             GetPackagesDelegate baseMethod)
         {
-            PXTrace.WriteInformation("[CARRIER-PKG-FILTER-RATES] PUBLIC override entered");
+            // ========================================================================
+            // DIAGNOSTIC TRACE: Log every call to GetPackages and scope state
+            // ========================================================================
             PXTrace.WriteInformation(
-                "[CARRIER-PKG-FILTER-RATES] Override invoked. ScopeActive={0}, Shipment={1}, SelectedLine={2}",
+                "[GET-PACKAGES-OVERRIDE] CALLED. ScopeActive={0}, Shipment={1}, SelectedLine={2}, Carrier={3}",
                 CarrierPackageFilterScope.IsActive,
-                shiporder?.ShipmentNbr,
-                CarrierPackageFilterScope.CurrentSelectedPackageLineNbr);
+                shiporder?.ShipmentNbr ?? "(null)",
+                CarrierPackageFilterScope.CurrentSelectedPackageLineNbr,
+                carrier?.CarrierID ?? "(null)");
 
             // If scope not active, use base unchanged
             if (!CarrierPackageFilterScope.IsActive)
             {
-                PXTrace.WriteInformation(
-                    "[CARRIER-PKG-FILTER-RATES] Scope inactive. Calling base GetPackages.");
-                return baseMethod(shiporder, carrier, plugin);
+                PXTrace.WriteWarning(
+                    "[GET-PACKAGES-OVERRIDE] Scope is INACTIVE - calling base GetPackages (will return ALL packages)");
+                var result = baseMethod(shiporder, carrier, plugin);
+                // ========================================================================
+                // CRITICAL: Log package count returned by base - this shows scope bypass
+                // ========================================================================
+                PXTrace.WriteWarning(
+                    "[GET-PACKAGES-OVERRIDE] ⚠️ Base method returned {0} CarrierBox items (scope was inactive, so ALL packages included)",
+                    result?.Count ?? 0);
+                return result;
             }
 
             // Validate shipment parameter
             if (shiporder?.ShipmentNbr == null)
             {
                 PXTrace.WriteWarning(
-                    "[CARRIER-PKG-FILTER-RATES] Shipment parameter is null. Calling base GetPackages.");
+                    "[GET-PACKAGES-OVERRIDE] Shipment parameter is null. Calling base GetPackages.");
                 return baseMethod(shiporder, carrier, plugin);
             }
 
@@ -93,7 +103,7 @@ namespace PX.Objects.SO
             if (!CarrierPackageFilterScope.AppliesToShipment(shiporder.ShipmentNbr))
             {
                 PXTrace.WriteWarning(
-                    "[CARRIER-PKG-FILTER-RATES] Scope shipment mismatch. ScopeShipment={0}, MethodShipment={1}. Calling base.",
+                    "[GET-PACKAGES-OVERRIDE] Scope shipment mismatch. ScopeShipment={0}, MethodShipment={1}. Calling base.",
                     CarrierPackageFilterScope.CurrentShipmentNbr,
                     shiporder?.ShipmentNbr);
                 return baseMethod(shiporder, carrier, plugin);
@@ -101,7 +111,7 @@ namespace PX.Objects.SO
 
             // Scope is active and applies to this shipment - filter before validation
             PXTrace.WriteInformation(
-                "[CARRIER-PKG-FILTER-RATES] Active for shipment {0}, selected line {1}",
+                "[GET-PACKAGES-OVERRIDE] Scope is ACTIVE and applies to shipment {0}, selected line {1}",
                 CarrierPackageFilterScope.CurrentShipmentNbr,
                 CarrierPackageFilterScope.CurrentSelectedPackageLineNbr);
 
@@ -116,7 +126,7 @@ namespace PX.Objects.SO
                     .ToList();
 
                 PXTrace.WriteInformation(
-                    "[CARRIER-PKG-FILTER-RATES] Raw package count for shipment {0}: {1}",
+                    "[GET-PACKAGES-OVERRIDE] Raw package count for shipment {0}: {1}",
                     shiporder.ShipmentNbr,
                     rawPackages.Count);
 
@@ -126,7 +136,7 @@ namespace PX.Objects.SO
                     .ToList();
 
                 PXTrace.WriteInformation(
-                    "[CARRIER-PKG-FILTER-RATES] Filtered package count: {0}. Lines: {1}",
+                    "[GET-PACKAGES-OVERRIDE] Filtered package count: {0}. Lines: {1}",
                     filteredPackages.Count,
                     filteredPackages.Count > 0 ? string.Join(",", filteredPackages.Select(p => p.LineNbr)) : "(none)");
 
@@ -140,15 +150,22 @@ namespace PX.Objects.SO
                 }
 
                 // Validate only the filtered packages (not all packages)
-                return ValidateAndBuildCarrierPackages(filteredPackages, carrier, plugin);
+                var result = ValidateAndBuildCarrierPackages(filteredPackages, carrier, plugin);
+                // ========================================================================
+                // CRITICAL: Log package count returned from filtered list
+                // ========================================================================
+                PXTrace.WriteInformation(
+                    "[GET-PACKAGES-OVERRIDE] ✅ Returning {0} CarrierBox item(s) from filtered packages (scope was active)",
+                    result?.Count ?? 0);
+                return result;
             }
             catch (Exception ex)
             {
                 PXTrace.WriteError(
-                    "[CARRIER-PKG-FILTER-RATES] Exception during filtered GetPackages: {0}",
+                    "[GET-PACKAGES-OVERRIDE] Exception during filtered GetPackages: {0}",
                     ex.Message);
                 PXTrace.WriteError(
-                    "[CARRIER-PKG-FILTER-RATES] Stack: {0}",
+                    "[GET-PACKAGES-OVERRIDE] Stack: {0}",
                     ex.StackTrace);
                 throw;
             }

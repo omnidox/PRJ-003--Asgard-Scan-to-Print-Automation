@@ -54,6 +54,11 @@ namespace PX.Objects.SO
         
             if (string.IsNullOrWhiteSpace(shipmentNbr))
                 return preserved;
+
+            // ========================================================================
+            // DIAGNOSTIC TRACE: Log capture attempt and results
+            // ========================================================================
+            PXTrace.WriteInformation("[CAPTURE-TRACKING] Starting capture for shipment {0}", shipmentNbr);
         
             foreach (SOPackageDetailEx package in PXSelect<
                 SOPackageDetailEx,
@@ -64,11 +69,30 @@ namespace PX.Objects.SO
                     continue;
         
                 FileInfo existingLabel = TryGetExistingCarrierLabel(package);
+                
+                // DIAGNOSTIC: Log skip/capture decision with full details
+                PXTrace.WriteInformation(
+                    "[CAPTURE-TRACKING] Evaluating LineNbr={0}: TrackNumber={1}, HasLabelFile={2}",
+                    package.LineNbr,
+                    package.TrackNumber ?? "(empty)",
+                    existingLabel != null ? "YES" : "NO");
+
                 if (existingLabel == null)
+                {
+                    PXTrace.WriteWarning(
+                        "[CAPTURE-TRACKING] SKIP - LineNbr={0} has no label file (TrackNumber={1})",
+                        package.LineNbr,
+                        package.TrackNumber ?? "(empty)");
                     continue;
+                }
         
                 if (string.IsNullOrWhiteSpace(package.TrackNumber))
+                {
+                    PXTrace.WriteWarning(
+                        "[CAPTURE-TRACKING] SKIP - LineNbr={0} has label file but no TrackNumber",
+                        package.LineNbr);
                     continue;
+                }
         
                 preserved[package.LineNbr.Value] = new PreservedPackageTracking
                 {
@@ -77,8 +101,16 @@ namespace PX.Objects.SO
                     TrackUrl = package.TrackUrl,
                     TrackData = package.TrackData
                 };
+
+                PXTrace.WriteInformation(
+                    "[CAPTURE-TRACKING] ✅ PRESERVED - LineNbr={0}, TrackNumber={1}, TrackUrl={2}, TrackData={3}",
+                    package.LineNbr,
+                    package.TrackNumber ?? "(empty)",
+                    package.TrackUrl ?? "(empty)",
+                    package.TrackData ?? "(empty)");
             }
-        
+
+            PXTrace.WriteInformation("[CAPTURE-TRACKING] Capture complete: {0} packages preserved out of all packages in shipment", preserved.Count);
             return preserved;
         }
           
@@ -86,6 +118,11 @@ namespace PX.Objects.SO
         {
             if (string.IsNullOrWhiteSpace(shipmentNbr) || preserved == null || preserved.Count == 0)
                 return;
+
+            // ========================================================================
+            // DIAGNOSTIC TRACE: Log restore operation for each package
+            // ========================================================================
+            PXTrace.WriteInformation("[RESTORE-TRACKING] Starting restore for {0} packages in shipment {1}", preserved.Count, shipmentNbr);
         
             foreach (SOPackageDetailEx package in PXSelect<
                 SOPackageDetailEx,
@@ -97,13 +134,34 @@ namespace PX.Objects.SO
         
                 if (!preserved.TryGetValue(package.LineNbr.Value, out PreservedPackageTracking snapshot))
                     continue;
-        
+
+                // ========================================================================
+                // DIAGNOSTIC TRACE: Log current value BEFORE restore
+                // ========================================================================
+                PXTrace.WriteInformation(
+                    "[RESTORE-TRACKING] BEFORE - LineNbr={0}, Current={1}",
+                    package.LineNbr,
+                    package.TrackNumber ?? "(empty)");
+
+                // Apply restore
                 package.TrackNumber = snapshot.TrackNumber;
                 package.TrackUrl = snapshot.TrackUrl;
                 package.TrackData = snapshot.TrackData;
         
                 _graph.Packages.Update(package);
+
+                // ========================================================================
+                // DIAGNOSTIC TRACE: Log restored value AFTER assignment
+                // ========================================================================
+                PXTrace.WriteInformation(
+                    "[RESTORE-TRACKING] AFTER ASSIGN - LineNbr={0}, Restored={1}, TrackUrl={2}, TrackData={3}",
+                    package.LineNbr,
+                    package.TrackNumber ?? "(empty)",
+                    package.TrackUrl ?? "(empty)",
+                    package.TrackData ?? "(empty)");
             }
+
+            PXTrace.WriteInformation("[RESTORE-TRACKING] Restore operation complete");
         }
           
         public virtual FileInfo TryGetExistingCarrierLabel(SOPackageDetailEx package)
@@ -209,12 +267,44 @@ namespace PX.Objects.SO
 
             AttachLabelFileToPackage(package, file);
 
+            // ========================================================================
+            // DIAGNOSTIC TRACE: Explicit carrier data assignment logging
+            // ========================================================================
+            PXTrace.WriteInformation(
+                "[PKG-LABEL-GEN] BEFORE SAVE - LineNbr={0}, TrackingNumberFromCarrier={1}",
+                package.LineNbr,
+                packageData.TrackingNumber ?? "(empty)");
+
             package.TrackNumber = packageData.TrackingNumber;
             package.TrackUrl = packageData.TrackingUrl;
             package.TrackData = packageData.TrackingData;
+
+            // ========================================================================
+            // DIAGNOSTIC TRACE: Log tracking assignment BEFORE cache update
+            // ========================================================================
+            PXTrace.WriteInformation(
+                "[PKG-LABEL-GEN] ASSIGNED - LineNbr={0}, TrackNumber={1}, TrackUrl={2}, TrackData={3}",
+                package.LineNbr,
+                package.TrackNumber ?? "(empty)",
+                package.TrackUrl ?? "(empty)",
+                package.TrackData ?? "(empty)");
             
             _graph.Packages.Update(package);
+
+            PXTrace.WriteInformation(
+                "[PKG-LABEL-GEN] BEFORE PressSave - LineNbr={0}, TrackNumber={1}",
+                package.LineNbr,
+                package.TrackNumber ?? "(empty)");
+
             _graph.Actions.PressSave();
+
+            // ========================================================================
+            // DIAGNOSTIC TRACE: CRITICAL - Log state AFTER PressSave to confirm persistence
+            // ========================================================================
+            PXTrace.WriteInformation(
+                "[PKG-LABEL-GEN] AFTER SAVE - LineNbr={0}, TrackNumber={1}",
+                package.LineNbr,
+                package.TrackNumber ?? "(empty)");
 
             return file;
         }
