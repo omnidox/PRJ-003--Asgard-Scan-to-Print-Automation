@@ -161,7 +161,7 @@ namespace PX.Objects.SO
             Carrier carrier,
             CarrierPlugin plugin)
         {
-            List list = new List();
+            List<CarrierBox> list = new List<CarrierBox>();
 
             // Get carrier package mappings
             var carrierPackageDetail = GetCarrierPackageDetail(packages, carrier.CarrierID);
