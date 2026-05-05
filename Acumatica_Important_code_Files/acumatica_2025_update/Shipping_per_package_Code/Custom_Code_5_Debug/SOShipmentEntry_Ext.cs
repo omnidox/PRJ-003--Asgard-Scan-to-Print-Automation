@@ -60,6 +60,46 @@ namespace PX.Objects.SO
                         PXTrace.WriteInformation(
                             "[MANUAL-PRINT] ✅ Label generated: {0}",
                             generatedFile.Name);
+
+                        // ========================================================================
+                        // CRITICAL: Refresh UI cache before redirect to print
+                        // File download/print redirect interrupts normal screen response, so we must
+                        // clear caches and re-query the package before printing to ensure the grid
+                        // shows updated tracking number when user returns or refreshes
+                        // ========================================================================
+                        PXTrace.WriteInformation(
+                            "[MANUAL-PRINT] Refreshing package grid cache before print redirect");
+
+                        // Request a refresh and clear caches
+                        Base.Packages.View.RequestRefresh();
+                        Base.Packages.Cache.Clear();
+                        Base.Packages.View.Clear();
+
+                        // Re-query the shipment to get fresh state
+                        Base.Document.Current = Base.Document.Search<SOShipment.shipmentNbr>(shipment.ShipmentNbr);
+
+                        // Re-query the specific package to get the updated tracking number
+                        var refreshedPackage = PXSelect<
+                            SOPackageDetailEx,
+                            Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
+                                And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
+                            .Select(Base, shipment.ShipmentNbr, package.LineNbr)
+                            .TopSingle;
+
+                        if (refreshedPackage != null)
+                        {
+                            Base.Packages.Current = refreshedPackage;
+                            PXTrace.WriteInformation(
+                                "[MANUAL-PRINT] Package grid refreshed. Current package: LineNbr={0}, TrackNumber={1}",
+                                refreshedPackage.LineNbr,
+                                refreshedPackage.TrackNumber ?? "(empty)");
+                        }
+                        else
+                        {
+                            PXTrace.WriteWarning(
+                                "[MANUAL-PRINT] Package not found after refresh. Grid may not show updated tracking.");
+                        }
+
                         svc.PrintSingleFile(generatedFile);
                         return adapter.Get();
                     }
