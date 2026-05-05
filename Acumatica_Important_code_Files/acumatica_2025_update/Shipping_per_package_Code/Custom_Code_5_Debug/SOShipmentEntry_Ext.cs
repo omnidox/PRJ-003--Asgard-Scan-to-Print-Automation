@@ -81,12 +81,11 @@ namespace PX.Objects.SO
                         Base.Document.Current = Base.Document.Search<SOShipment.shipmentNbr>(shipment.ShipmentNbr);
 
                         // Re-query the specific package to get the updated tracking number
-                        var refreshedPackage = PXSelect<
+                        SOPackageDetailEx refreshedPackage = PXSelect<
                             SOPackageDetailEx,
                             Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
                                 And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
-                            .Select(Base, shipment.ShipmentNbr, package.LineNbr)
-                            .FirstOrDefault();
+                            .Select(Base, shipment.ShipmentNbr, package.LineNbr);
 
                         if (refreshedPackage != null)
                         {
