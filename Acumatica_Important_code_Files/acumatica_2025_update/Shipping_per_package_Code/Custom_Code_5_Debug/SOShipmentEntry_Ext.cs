@@ -390,3 +390,5 @@ namespace PX.Objects.SO
 
             return true;  // Flag was changed
         }
+    }
+}
