@@ -1,4 +1,6 @@
 using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
 using PX.Data;
 using PX.Objects.SO;
 using PX.SM;
@@ -84,7 +86,7 @@ namespace PX.Objects.SO
                             Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
                                 And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
                             .Select(Base, shipment.ShipmentNbr, package.LineNbr)
-                            .TopSingle;
+                            .FirstOrDefault();
 
                         if (refreshedPackage != null)
                         {
