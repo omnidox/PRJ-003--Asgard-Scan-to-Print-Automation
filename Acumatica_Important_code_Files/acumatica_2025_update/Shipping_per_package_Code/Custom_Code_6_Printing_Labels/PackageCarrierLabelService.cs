@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
+using System.Threading;
 using PX.Data;
 using PX.Objects.SO;
 using PX.SM;
@@ -269,6 +270,108 @@ namespace PX.Objects.SO
                 throw new PXException("No label file was provided for printing.");
 
             throw new PXRedirectToFileException(fileInfo, true);
+        }
+
+        /// <summary>
+        /// Queue raw ZPL/EPL label file to DeviceHub printer asynchronously.
+        /// 
+        /// Purpose:
+        /// Creates a print job in Acumatica DeviceHub instead of downloading file.
+        /// This is called from button action via LongOperationManager.StartAsyncOperation.
+        /// 
+        /// Parameters:
+        /// - fileID: The persisted file UID (must exist in UploadFileMaintenance)
+        /// - printerID: The target DeviceHub printer GUID
+        /// - cancellationToken: For async operation cancellation
+        /// 
+        /// Why persisted file retrieval is critical:
+        /// - Original in-memory FileInfo may have lifetime issues in async context
+        /// - Fresh graph ensures no stale cache state
+        /// - Re-fetching guarantees file data is available
+        /// 
+        /// Safety considerations:
+        /// - Uses fresh graph instance (not UI graph)
+        /// - Re-fetches file from UploadFileMaintenance before printing
+        /// - Validates printer ID before creating job
+        /// - Comprehensive error logging for troubleshooting
+        /// </summary>
+        public virtual async System.Threading.Tasks.Task SendRawFileToPrinterAsync(
+            Guid fileID,
+            Guid? printerID,
+            CancellationToken cancellationToken)
+        {
+            if (fileID == Guid.Empty)
+                throw new PXException("File ID is required for printing.");
+
+            if (!printerID.HasValue || printerID.Value == Guid.Empty)
+                throw new PXException("Printer ID is required for DeviceHub printing.");
+
+            PXTrace.WriteInformation(
+                "[PRINT-JOB] Queuing DeviceHub print job for file {0} to printer {1}",
+                fileID, printerID.Value);
+
+            try
+            {
+                // ====================================================================
+                // CRITICAL: Re-fetch persisted file from storage
+                // Do NOT rely on original in-memory FileInfo in async context
+                // ====================================================================
+                UploadFileMaintenance upload = PXGraph.CreateInstance<UploadFileMaintenance>();
+                FileInfo persistedFile = upload.GetFile(fileID);
+
+                if (persistedFile == null)
+                    throw new PXException($"Label file {fileID} could not be found in file storage.");
+
+                PXTrace.WriteInformation(
+                    "[PRINT-JOB] Retrieved persisted file: {0} ({1} bytes)",
+                    persistedFile.Name,
+                    persistedFile.BinData?.Length ?? 0);
+
+                // ====================================================================
+                // Create PXAdapter for DeviceHub print job
+                // Minimal arguments: PrinterID and PrintWithDeviceHub
+                // ====================================================================
+                var adapter = new PXAdapter(PXView.Dummy.For(_graph))
+                {
+                    MassProcess = true,
+                    Arguments =
+                    {
+                        [nameof(IPrintable.PrinterID)] = printerID,
+                        [nameof(IPrintable.PrintWithDeviceHub)] = true
+                    }
+                };
+
+                // ====================================================================
+                // Queue print job using Acumatica native DeviceHub API
+                // This creates the actual printer job, not just downloads file
+                // ====================================================================
+                await SMPrintJobMaint.CreatePrintJobForRawFile(
+                    adapter,
+                    delegate { return printerID; },
+                    SONotificationSource.Customer,
+                    SOReports.PrintLabels,
+                    _graph.Accessinfo.BranchID,
+                    new Dictionary<string, string>
+                    {
+                        { "FILEID", fileID.ToString() }
+                    },
+                    "Selected package carrier label",
+                    cancellationToken);
+
+                PXTrace.WriteInformation(
+                    "[PRINT-JOB] ✅ DeviceHub print job queued successfully for file {0}",
+                    fileID);
+            }
+            catch (Exception ex)
+            {
+                PXTrace.WriteError(
+                    "[PRINT-JOB] Exception creating print job: {0}",
+                    ex.Message);
+                PXTrace.WriteError(
+                    "[PRINT-JOB] Stack: {0}",
+                    ex.StackTrace);
+                throw;
+            }
         }
     }
 }

@@ -52,6 +52,20 @@ namespace PX.Objects.SO
                         PXTrace.WriteInformation(
                             "[MANUAL-PRINT] Using existing label file: {0}",
                             existingFile.Name);
+                        
+                        // For existing file, use DeviceHub printing primary path
+                        if (existingFile.UID.HasValue)
+                        {
+                            Guid? printerID = ResolveDeviceHubPrinter(shipment.ShipVia);
+                            if (printerID.HasValue)
+                            {
+                                QueueFilePrintJob(existingFile.UID.Value, printerID.Value);
+                                return adapter.Get();
+                            }
+                        }
+                        
+                        // Fallback: Download if no printer found
+                        PXTrace.WriteWarning("[MANUAL-PRINT] No printer configured, falling back to file download");
                         svc.PrintSingleFile(existingFile);
                         return adapter.Get();
                     }
@@ -64,13 +78,10 @@ namespace PX.Objects.SO
                             generatedFile.Name);
 
                         // ========================================================================
-                        // CRITICAL: Refresh UI cache before redirect to print
-                        // File download/print redirect interrupts normal screen response, so we must
-                        // clear caches and re-query the package before printing to ensure the grid
-                        // shows updated tracking number when user returns or refreshes
+                        // CRITICAL: Refresh UI cache before print job queuing
                         // ========================================================================
                         PXTrace.WriteInformation(
-                            "[MANUAL-PRINT] Refreshing package grid cache before print redirect");
+                            "[MANUAL-PRINT] Refreshing package grid cache after generation");
 
                         // Request a refresh and clear caches
                         Base.Packages.View.RequestRefresh();
@@ -101,8 +112,34 @@ namespace PX.Objects.SO
                                 "[MANUAL-PRINT] Package not found after refresh. Grid may not show updated tracking.");
                         }
 
-                        svc.PrintSingleFile(generatedFile);
-                        return adapter.Get();
+                        // ========================================================================
+                        // PRIMARY: Queue DeviceHub print job
+                        // FALLBACK: Download if no printer configured
+                        // ========================================================================
+                        if (generatedFile.UID.HasValue)
+                        {
+                            Guid? printerID = ResolveDeviceHubPrinter(shipment.ShipVia);
+                            if (printerID.HasValue)
+                            {
+                                PXTrace.WriteInformation(
+                                    "[MANUAL-PRINT] Queueing DeviceHub print job for file {0}",
+                                    generatedFile.UID.Value);
+                                QueueFilePrintJob(generatedFile.UID.Value, printerID.Value);
+                                return adapter.Get();
+                            }
+                            else
+                            {
+                                // No printer found - use download fallback
+                                PXTrace.WriteWarning(
+                                    "[MANUAL-PRINT] No printer configured, falling back to file download");
+                                svc.PrintSingleFile(generatedFile);
+                                return adapter.Get();
+                            }
+                        }
+                        else
+                        {
+                            throw new PXException("Generated label file does not have a valid UID for printing.");
+                        }
                     }
 
                     throw new PXException($"No label could be found or generated for package line {package.LineNbr}.");
@@ -132,6 +169,91 @@ namespace PX.Objects.SO
 
             PrintSelectedPackageLabel.SetVisible(true);
             PrintSelectedPackageLabel.SetEnabled(true);
+        }
+
+        /// <summary>
+        /// Resolve DeviceHub printer for carrier label printing.
+        /// 
+        /// Uses Acumatica's native notification utility to find printer
+        /// by PrintLabels report and ShipVia carrier.
+        /// 
+        /// Returns null if no printer is configured.
+        /// </summary>
+        protected virtual Guid? ResolveDeviceHubPrinter(string shipVia)
+        {
+            try
+            {
+                var notificationUtility = new NotificationUtility(Base);
+                Guid? printerID = notificationUtility.SearchPrinter(
+                    SONotificationSource.Customer,
+                    SOReports.PrintLabels,
+                    Base.Accessinfo.BranchID);
+
+                if (printerID.HasValue && printerID.Value != Guid.Empty)
+                {
+                    PXTrace.WriteInformation(
+                        "[PRINT-RESOLVE] Found printer {0} for PrintLabels report",
+                        printerID.Value);
+                    return printerID;
+                }
+
+                PXTrace.WriteWarning(
+                    "[PRINT-RESOLVE] No DeviceHub printer configured for PrintLabels report");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                PXTrace.WriteWarning(
+                    "[PRINT-RESOLVE] Exception resolving printer: {0}",
+                    ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Queue raw ZPL label file to DeviceHub printer via LongOperationManager.
+        /// 
+        /// Purpose:
+        /// Creates async print job so file is sent to printer, not downloaded.
+        /// Uses LongOperationManager.StartAsyncOperation for proper Acumatica pattern.
+        /// 
+        /// Parameters:
+        /// - fileID: The persisted file UID
+        /// - printerID: The DeviceHub printer GUID
+        /// 
+        /// Why LongOperationManager:
+        /// - Proper async context in Acumatica
+        /// - Avoids graph lifetime issues
+        /// - Integrates with UI progress/feedback
+        /// </summary>
+        protected virtual void QueueFilePrintJob(Guid fileID, Guid printerID)
+        {
+            if (fileID == Guid.Empty)
+                throw new PXException("File ID is required for queuing print job.");
+
+            if (printerID == Guid.Empty)
+                throw new PXException("Printer ID is required for queuing print job.");
+
+            PXTrace.WriteInformation(
+                "[MANUAL-PRINT] Queuing print job for file {0} to printer {1}",
+                fileID, printerID);
+
+            // ====================================================================
+            // Queue async print job using LongOperationManager
+            // Creates fresh graph inside async context
+            // ====================================================================
+            Base.LongOperationManager.StartAsyncOperation(ct =>
+            {
+                // Create fresh graph instance inside async context
+                SOShipmentEntry freshGraph = PXGraph.CreateInstance<SOShipmentEntry>();
+                PackageCarrierLabelService svc = new PackageCarrierLabelService(freshGraph);
+
+                // Call async method that uses fresh graph
+                return svc.SendRawFileToPrinterAsync(fileID, printerID, ct);
+            });
+
+            PXTrace.WriteInformation(
+                "[MANUAL-PRINT] Print job queued successfully");
         }
 
         public delegate void ShipPackagesDelegate(SOShipment shiporder);
