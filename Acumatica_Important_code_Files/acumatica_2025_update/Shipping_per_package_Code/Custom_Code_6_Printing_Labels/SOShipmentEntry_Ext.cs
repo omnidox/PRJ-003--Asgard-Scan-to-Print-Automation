@@ -197,20 +197,20 @@ namespace PX.Objects.SO
                 if (printerID.HasValue && printerID.Value != Guid.Empty)
                 {
                     PXTrace.WriteInformation(
-                        "[PRINT-RESOLVE] Found printer {0} for PrintLabels report",
+                        "[PRINT-RESOLVE] Printer resolved. PrinterID={0}",
                         printerID.Value);
                     return printerID;
                 }
 
                 PXTrace.WriteWarning(
-                    "[PRINT-RESOLVE] No DeviceHub printer configured for PrintLabels report");
+                    "[PRINT-RESOLVE] No printer resolved for PrintLabels");
                 return null;
             }
             catch (Exception ex)
             {
-                PXTrace.WriteWarning(
+                PXTrace.WriteError(
                     "[PRINT-RESOLVE] Exception resolving printer: {0}",
-                    ex.Message);
+                    ex);
                 return null;
             }
         }
@@ -249,6 +249,11 @@ namespace PX.Objects.SO
             // ====================================================================
             Base.LongOperationManager.StartAsyncOperation(ct =>
             {
+                // TRACE #3: Async operation start
+                PXTrace.WriteInformation(
+                    "[PRINT-ASYNC] Starting async DeviceHub operation for file {0}",
+                    fileID);
+
                 // Create fresh graph instance inside async context
                 SOShipmentEntry freshGraph = PXGraph.CreateInstance<SOShipmentEntry>();
                 PackageCarrierLabelService svc = new PackageCarrierLabelService(freshGraph);

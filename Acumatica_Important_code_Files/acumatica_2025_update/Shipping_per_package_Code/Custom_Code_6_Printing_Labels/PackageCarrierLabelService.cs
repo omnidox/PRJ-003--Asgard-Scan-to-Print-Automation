@@ -235,6 +235,12 @@ namespace PX.Objects.SO
             if (!upload.SaveFile(file))
                 throw new PXException("Carrier label file could not be saved.");
 
+            // TRACE #2: File UID verification
+            PXTrace.WriteInformation(
+                "[PRINT-FILE] Saved label file. UID={0}, Name={1}",
+                file.UID,
+                file.Name);
+
             AttachLabelFileToPackage(package, file);
 
             package.TrackNumber = packageData.TrackingNumber;
@@ -317,9 +323,10 @@ namespace PX.Objects.SO
                 if (persistedFile == null)
                     throw new PXException($"Label file {fileID} could not be found in file storage.");
 
+                // TRACE #4: Persisted file retrieval
                 PXTrace.WriteInformation(
-                    "[PRINT-JOB] Retrieved persisted file: {0} ({1} bytes)",
-                    persistedFile.Name,
+                    "[PRINT-ASYNC] Persisted file loaded successfully. UID={0}, Size={1}",
+                    fileID,
                     persistedFile.BinData?.Length ?? 0);
 
                 // ====================================================================
@@ -335,6 +342,12 @@ namespace PX.Objects.SO
                         [nameof(IPrintable.PrintWithDeviceHub)] = true
                     }
                 };
+
+                // TRACE #5: Before CreatePrintJobForRawFile (MOST IMPORTANT)
+                PXTrace.WriteInformation(
+                    "[PRINT-JOB] Calling CreatePrintJobForRawFile. File={0}, Printer={1}",
+                    fileID,
+                    printerID);
 
                 // ====================================================================
                 // Queue print job using Acumatica native DeviceHub API
@@ -353,18 +366,18 @@ namespace PX.Objects.SO
                     "Selected package carrier label",
                     cancellationToken);
 
+                // TRACE #6: After CreatePrintJobForRawFile
+                PXTrace.WriteInformation(
+                    "[PRINT-JOB] CreatePrintJobForRawFile completed successfully.");
+
                 PXTrace.WriteInformation(
                     "[PRINT-JOB] ✅ DeviceHub print job queued successfully for file {0}",
                     fileID);
             }
             catch (Exception ex)
             {
-                PXTrace.WriteError(
-                    "[PRINT-JOB] Exception creating print job: {0}",
-                    ex.Message);
-                PXTrace.WriteError(
-                    "[PRINT-JOB] Stack: {0}",
-                    ex.StackTrace);
+                // TRACE #7: Full exception logging with stack trace
+                PXTrace.WriteError(ex);
                 throw;
             }
         }
