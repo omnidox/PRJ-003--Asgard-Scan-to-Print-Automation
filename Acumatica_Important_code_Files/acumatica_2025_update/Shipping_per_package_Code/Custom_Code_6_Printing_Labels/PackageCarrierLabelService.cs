@@ -42,9 +42,6 @@ namespace PX.Objects.SO
             public int? LineNbr { get; set; }
             public string TrackNumber { get; set; }
             public string TrackUrl { get; set; }
-        
-            // If this type does not compile in your environment,
-            // change it to match SOPackageDetailEx.TrackData's actual type.
             public string TrackData { get; set; }
         }
 
@@ -207,14 +204,12 @@ namespace PX.Objects.SO
             }
 
             var packageData =
-                result.Result.Data.FirstOrDefault(d => object.Equals(d.RefNbr, package.LineNbr))
-                ?? result.Result.Data.FirstOrDefault();
+                result.Result.Data.FirstOrDefault(d => object.Equals(d.RefNbr, package.LineNbr));
 
             if (packageData == null)
             {
                 throw new PXException(
-                    $"Carrier returned no matching package result for package line {package.LineNbr}."
-                );
+                    $"Carrier returned no matching package result for package line {package.LineNbr}.");
             }
 
             if (packageData.Image == null || packageData.Image.Length == 0)

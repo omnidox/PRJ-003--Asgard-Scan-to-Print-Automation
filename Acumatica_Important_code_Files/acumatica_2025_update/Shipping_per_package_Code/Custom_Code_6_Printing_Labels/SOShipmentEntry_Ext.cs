@@ -31,6 +31,14 @@ namespace PX.Objects.SO
                 package.LineNbr);
 
             // ========================================================================
+            // Variables to capture state from inside filter scope
+            // These will be used OUTSIDE the scope to avoid context leakage
+            // ========================================================================
+            FileInfo queuedFile = null;
+            Guid? queuedPrinterID = null;
+            FileInfo fallbackFile = null;
+
+            // ========================================================================
             // CRITICAL: Activate filter scope for manual button path
             // This ensures CarrierRates.GetPackages override filters packages
             // ========================================================================
@@ -53,96 +61,67 @@ namespace PX.Objects.SO
                             "[MANUAL-PRINT] Using existing label file: {0}",
                             existingFile.Name);
                         
-                        // For existing file, use DeviceHub printing primary path
+                        // Capture existing file for use outside scope
                         if (existingFile.UID.HasValue)
                         {
-                            Guid? printerID = ResolveDeviceHubPrinter(shipment.ShipVia);
-                            if (printerID.HasValue)
+                            queuedFile = existingFile;
+                            queuedPrinterID = ResolveDeviceHubPrinter();
+                            if (!queuedPrinterID.HasValue)
                             {
-                                QueueFilePrintJob(existingFile.UID.Value, printerID.Value);
-                                return adapter.Get();
+                                // No printer - use fallback download
+                                fallbackFile = existingFile;
+                                queuedFile = null;
                             }
-                        }
-                        
-                        // Fallback: Download if no printer found
-                        PXTrace.WriteWarning("[MANUAL-PRINT] No printer configured, falling back to file download");
-                        svc.PrintSingleFile(existingFile);
-                        return adapter.Get();
-                    }
-
-                    FileInfo generatedFile = svc.GenerateCarrierLabelForPackage(shipment, package);
-                    if (generatedFile != null)
-                    {
-                        PXTrace.WriteInformation(
-                            "[MANUAL-PRINT] ✅ Label generated: {0}",
-                            generatedFile.Name);
-
-                        // ========================================================================
-                        // CRITICAL: Refresh UI cache before print job queuing
-                        // ========================================================================
-                        PXTrace.WriteInformation(
-                            "[MANUAL-PRINT] Refreshing package grid cache after generation");
-
-                        // Request a refresh and clear caches
-                        Base.Packages.View.RequestRefresh();
-                        Base.Packages.Cache.Clear();
-                        Base.Packages.View.Clear();
-
-                        // Re-query the shipment to get fresh state
-                        Base.Document.Current = Base.Document.Search<SOShipment.shipmentNbr>(shipment.ShipmentNbr);
-
-                        // Re-query the specific package to get the updated tracking number
-                        SOPackageDetailEx refreshedPackage = PXSelect<
-                            SOPackageDetailEx,
-                            Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
-                                And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
-                            .Select(Base, shipment.ShipmentNbr, package.LineNbr);
-
-                        if (refreshedPackage != null)
-                        {
-                            Base.Packages.Current = refreshedPackage;
-                            PXTrace.WriteInformation(
-                                "[MANUAL-PRINT] Package grid refreshed. Current package: LineNbr={0}, TrackNumber={1}",
-                                refreshedPackage.LineNbr,
-                                refreshedPackage.TrackNumber ?? "(empty)");
                         }
                         else
                         {
-                            PXTrace.WriteWarning(
-                                "[MANUAL-PRINT] Package not found after refresh. Grid may not show updated tracking.");
+                            // No UID - use fallback download
+                            fallbackFile = existingFile;
                         }
-
-                        // ========================================================================
-                        // PRIMARY: Queue DeviceHub print job
-                        // FALLBACK: Download if no printer configured
-                        // ========================================================================
-                        if (generatedFile.UID.HasValue)
+                        
+                        // Exit scope to use captured state
+                        // IMPORTANT: This return happens INSIDE the using block, but values are captured
+                        // actual queueing happens outside scope
+                    }
+                    else
+                    {
+                        FileInfo generatedFile = svc.GenerateCarrierLabelForPackage(shipment, package);
+                        if (generatedFile != null)
                         {
-                            Guid? printerID = ResolveDeviceHubPrinter(shipment.ShipVia);
-                            if (printerID.HasValue)
+                            PXTrace.WriteInformation(
+                                "[MANUAL-PRINT] ✅ Label generated: {0}",
+                                generatedFile.Name);
+
+                            // ========================================================================
+                            // Simplify refresh: just request refresh, avoid heavy cache clearing
+                            // ========================================================================
+                            PXTrace.WriteInformation(
+                                "[MANUAL-PRINT] Requesting package grid refresh after generation");
+
+                            Base.Packages.View.RequestRefresh();
+
+                            // Capture generated file for use outside scope
+                            if (generatedFile.UID.HasValue)
                             {
-                                PXTrace.WriteInformation(
-                                    "[MANUAL-PRINT] Queueing DeviceHub print job for file {0}",
-                                    generatedFile.UID.Value);
-                                QueueFilePrintJob(generatedFile.UID.Value, printerID.Value);
-                                return adapter.Get();
+                                queuedFile = generatedFile;
+                                queuedPrinterID = ResolveDeviceHubPrinter();
+                                if (!queuedPrinterID.HasValue)
+                                {
+                                    // No printer - use fallback download
+                                    fallbackFile = generatedFile;
+                                    queuedFile = null;
+                                }
                             }
                             else
                             {
-                                // No printer found - use download fallback
-                                PXTrace.WriteWarning(
-                                    "[MANUAL-PRINT] No printer configured, falling back to file download");
-                                svc.PrintSingleFile(generatedFile);
-                                return adapter.Get();
+                                throw new PXException("Generated label file does not have a valid UID for printing.");
                             }
                         }
                         else
                         {
-                            throw new PXException("Generated label file does not have a valid UID for printing.");
+                            throw new PXException($"No label could be found or generated for package line {package.LineNbr}.");
                         }
                     }
-
-                    throw new PXException($"No label could be found or generated for package line {package.LineNbr}.");
                 }
                 catch (PXException pxEx)
                 {
@@ -160,6 +139,32 @@ namespace PX.Objects.SO
                         "[MANUAL-PRINT] [CarrierPkgFilter] Filter scope exiting");
                 }
             }
+
+            // ========================================================================
+            // FIX #1: CRITICAL - Print job queueing happens OUTSIDE filter scope
+            // This prevents CarrierPackageFilterScope context from leaking into async operation
+            // ========================================================================
+            if (queuedFile != null && queuedPrinterID.HasValue)
+            {
+                PXTrace.WriteInformation(
+                    "[MANUAL-PRINT] Queueing DeviceHub print job for file {0} (OUTSIDE scope)",
+                    queuedFile.UID.Value);
+                QueueFilePrintJob(queuedFile.UID.Value, queuedPrinterID.Value);
+                return adapter.Get();
+            }
+            else if (fallbackFile != null)
+            {
+                // FIX #6: Fallback file download happens OUTSIDE scope
+                PXTrace.WriteWarning(
+                    "[MANUAL-PRINT] No printer configured, using file download fallback (OUTSIDE scope)");
+                var svc = new PackageCarrierLabelService(Base);
+                svc.PrintSingleFile(fallbackFile);
+                return adapter.Get();
+            }
+            else
+            {
+                throw new PXException("Label file could not be queued for printing.");
+            }
         }
 
         protected virtual void _(Events.RowSelected<SOShipment> e)
@@ -175,11 +180,11 @@ namespace PX.Objects.SO
         /// Resolve DeviceHub printer for carrier label printing.
         /// 
         /// Uses Acumatica's native notification utility to find printer
-        /// by PrintLabels report and ShipVia carrier.
+        /// by PrintLabels report.
         /// 
         /// Returns null if no printer is configured.
         /// </summary>
-        protected virtual Guid? ResolveDeviceHubPrinter(string shipVia)
+        protected virtual Guid? ResolveDeviceHubPrinter()
         {
             try
             {
