@@ -318,7 +318,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             {
                 throw new PXException(
                     "Could not resolve an Asgard label model for selected-package native printing. " +
-                    "Please verify ALSetupSlot.BoxPrintModelID or the fallback model name.");
+                    "Please verify the Asgard label model rules for package models on SO302000.");
             }
 
             PXTrace.WriteInformation("[INTERNAL] Model resolved: ModelID={0}", modelId);

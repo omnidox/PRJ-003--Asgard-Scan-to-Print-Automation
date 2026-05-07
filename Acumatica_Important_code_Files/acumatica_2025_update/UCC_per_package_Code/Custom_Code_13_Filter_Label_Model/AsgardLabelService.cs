@@ -768,9 +768,9 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 PXTrace.WriteInformation("[CONTEXT] ✅ Scriban context built successfully");
 
-                // ✅ CRITICAL VALIDATION PROBE
-                // Confirm that Document.CustomerID.AcctName resolves correctly
-                // If this probe fails, the entire dynamic rule system won't work
+                // ✅ DIAGNOSTIC PROBE (non-blocking)
+                // Attempt to resolve Document.CustomerID.AcctName for diagnostic purposes
+                // If the probe fails, we log it but continue - the actual rule evaluation will determine success/failure
                 try
                 {
                     object probe = NewScribanUtils.EvalExpr<object>(
@@ -778,29 +778,26 @@ namespace AA.Objects.AL.Integration.PerPackage
                         "Document.CustomerID.AcctName",
                         null);
 
-                    PXTrace.WriteInformation("[CONTEXT-PROBE] Document.CustomerID.AcctName resolved to: {0}", 
-                        probe ?? "null");
-
                     if (probe == null)
                     {
-                        PXTrace.WriteWarning(
-                            "[CONTEXT-PROBE] ⚠️ WARNING: Document.CustomerID.AcctName evaluated to null. " +
-                            "Rule expressions that depend on customer name may fail.");
+                        PXTrace.WriteInformation("[CONTEXT-PROBE] Document.CustomerID.AcctName evaluated to null - rule evaluation may depend on different context");
                     }
                     else
                     {
-                        PXTrace.WriteInformation("[CONTEXT-PROBE] ✅ Document context is properly set up");
+                        PXTrace.WriteInformation("[CONTEXT-PROBE] Document.CustomerID.AcctName resolved successfully: {0}", probe);
                     }
                 }
                 catch (Exception probeEx)
                 {
-                    PXTrace.WriteWarning("[CONTEXT-PROBE] ⚠️ Error probing Document.CustomerID.AcctName: {0}", 
-                        probeEx.Message);
-                    PXTrace.WriteWarning(
-                        "[CONTEXT-PROBE] Rule expressions that reference Document may not evaluate correctly");
+                    PXTrace.WriteInformation("[CONTEXT-PROBE] Diagnostic probe encountered error (non-blocking): {0}", probeEx.Message);
+                    PXTrace.WriteInformation("[CONTEXT-PROBE] Continuing - actual rule evaluation will determine if Document context is sufficient");
                 }
 
                 return scribanContext;
+            }
+            catch (PXException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -851,10 +848,21 @@ namespace AA.Objects.AL.Integration.PerPackage
                 // ✅ Re-throw PXException immediately
                 throw;
             }
+            catch (AAException aaEx)
+            {
+                // ✅ Catch AAException (type conversion errors from NewScribanUtils)
+                // and wrap it in PXException with full context
+                PXTrace.WriteInformation("[EVAL-EXPR] ⚠️ AAException evaluating rule '{0}': {1}", ruleName, aaEx.Message);
+                PXTrace.WriteInformation("[EVAL-EXPR] Stack trace: {0}", aaEx.StackTrace);
+                
+                throw new PXException(
+                    "Error evaluating rule '{0}' (used by model '{1}'). Expression: '{2}'. Error: {3}",
+                    ruleName, modelName, expression, aaEx.Message);
+            }
             catch (Exception ex)
             {
-                // ✅ Catch AAException (type conversion errors) and generic Exception (evaluation errors)
-                // and wrap them in PXException with full context
+                // ✅ Catch generic Exception (other evaluation errors)
+                // and wrap it in PXException with full context
                 PXTrace.WriteInformation("[EVAL-EXPR] ⚠️ Error evaluating rule '{0}': {1}", ruleName, ex.Message);
                 PXTrace.WriteInformation("[EVAL-EXPR] Exception type: {0}", ex.GetType().FullName);
                 PXTrace.WriteInformation("[EVAL-EXPR] Stack trace: {0}", ex.StackTrace);
