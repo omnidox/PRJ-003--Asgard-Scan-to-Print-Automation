@@ -308,6 +308,37 @@ namespace AA.Objects.AL.Integration.PerPackage
                     PXTrace.WriteInformation("[CHECKBOX] ✅ Calling CreatePrintContext with BasedOnView={0}, ModelID={1}", 
                         basedOnViewName, modelId);
 
+                    // ✅ CHECKPOINT: Verify the selected package has UsrALPrintLabel=true before CreatePrintContext
+                    // This confirms the checkbox was actually saved and is visible to Asgard
+                    SOPackageDetailEx verifyPackage = PXSelect<
+                        SOPackageDetailEx,
+                        Where<
+                            SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
+                            And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
+                        .Select(_graph, shipment.ShipmentNbr, selectedPackageLineNbr);
+
+                    if (verifyPackage != null)
+                    {
+                        object flag = _graph.Packages.Cache.GetValue(verifyPackage, "UsrALPrintLabel");
+                        object copies = _graph.Packages.Cache.GetValue(verifyPackage, "UsrALNbrOfCopies");
+                        object qty = _graph.Packages.Cache.GetValue(verifyPackage, "UsrALLabelQty");
+                        object ucc128 = _graph.Packages.Cache.GetValue(verifyPackage, "UsrTCUCC128");
+                        object carton = _graph.Packages.Cache.GetValue(verifyPackage, "UsrCartonNbr");
+
+                        PXTrace.WriteInformation(
+                            "[CHECKBOX-VERIFY] After save: LineNbr={0}, UsrALPrintLabel={1}, UsrALNbrOfCopies={2}, UsrALLabelQty={3}, UsrTCUCC128={4}, UsrCartonNbr={5}",
+                            verifyPackage.LineNbr,
+                            flag,
+                            copies,
+                            qty,
+                            ucc128,
+                            carton);
+                    }
+                    else
+                    {
+                        PXTrace.WriteInformation("[CHECKBOX-VERIFY] ⚠️ WARNING: verifyPackage is null after selecting LineNbr={0}", selectedPackageLineNbr);
+                    }
+
                     AcuLabelContext printContext = AcuLabelContext.CreatePrintContext(
                         _graph.GetType(),
                         shipment,
