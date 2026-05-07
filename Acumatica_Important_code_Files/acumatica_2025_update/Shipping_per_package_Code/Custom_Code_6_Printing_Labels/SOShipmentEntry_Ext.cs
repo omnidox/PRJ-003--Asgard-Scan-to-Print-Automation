@@ -153,6 +153,26 @@ namespace PX.Objects.SO
                     "[MANUAL-PRINT] Queueing DeviceHub print job for file {0} (OUTSIDE scope)",
                     queuedFile.UID.Value);
                 QueueFilePrintJob(queuedFile.UID.Value, queuedPrinterID.Value);
+
+                // ====================================================================
+                // OPTIONAL: Also prompt user to download file after print job is queued
+                // 
+                // Set to true for testing/debugging, false for production.
+                // This should later become a user preference/configuration setting.
+                // Default production behavior: queue print only, no download prompt.
+                // ====================================================================
+                bool alsoDownloadAfterPrint = true; // TODO: Make this configurable per user preference
+
+                if (alsoDownloadAfterPrint)
+                {
+                    PXTrace.WriteInformation(
+                        "[MANUAL-PRINT] Also offering file download after print job queued");
+                    var svc = new PackageCarrierLabelService(Base);
+                    svc.PrintSingleFile(queuedFile);
+                    // NOTE: PrintSingleFile throws PXRedirectToFileException, which stops execution
+                    // This is intentional - the print job was already queued before the exception
+                }
+
                 return adapter.Get();
             }
             else if (fallbackFile != null)
