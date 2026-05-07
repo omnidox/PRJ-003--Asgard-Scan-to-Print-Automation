@@ -6,12 +6,12 @@ using System.Reflection;
 using AA.Objects.Labels;
 using AA.Objects.Core;
 using Asgard.Labels.Abstractions.Interface;
-using Asgard.Labels.Impl.Context;
-using Asgard.Labels.Impl.Poco;
-using Asgard.Labels.Impl.Language.MyScriban;  // ← For NewScribanUtils
+using Asgard.Labels.Impl.Context;  // ← VERIFY: May be unused - remove if compilation succeeds without it
+using Asgard.Labels.Impl.Poco;      // ← VERIFY: May be unused - remove if compilation succeeds without it
+using Asgard.Labels.Impl.Language.MyScriban;  // ← REQUIRED: For NewScribanUtils
 using PX.Data;
 using PX.Objects.SO;
-using Scriban;  // ← For TemplateContext
+using Scriban;  // ← REQUIRED: For TemplateContext
 
 namespace AA.Objects.AL.Integration.PerPackage
 {
@@ -570,7 +570,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     ALModel.active, Equal<True>,
                     And<ALModel.screenID, Equal<Required<ALModel.screenID>>>>>
                 .Select(_graph, "SO302000")
-                .Cast<ALModel>()
+                .RowCast<ALModel>()
                 .Where(m => m.BasedOnView == "ALPackages" || m.BasedOnView == "ALiStarPackages")
                 .ToList();
 
@@ -627,6 +627,13 @@ namespace AA.Objects.AL.Integration.PerPackage
                         throw new PXException(
                             "Rule '{0}' (used by model '{1}') has an empty expression.",
                             rule.Name, model.Name);
+                    }
+
+                    // ✅ Check if rule is active before evaluating
+                    if (rule.Active != true)
+                    {
+                        PXTrace.WriteInformation("[RULE-EVAL] Rule {0} is inactive - SKIP", rule.Name);
+                        continue;
                     }
 
                     // ✅ Build Scriban context with shipment (Document will resolve from current shipment)
