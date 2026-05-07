@@ -333,7 +333,7 @@ namespace PX.Objects.SO
                 // Create PXAdapter for DeviceHub print job
                 // Minimal arguments: PrinterID and PrintWithDeviceHub
                 // ====================================================================
-                var adapter = new PXAdapter(PXView.Dummy.For(_graph))
+                var adapter = new PXAdapter(PXView.Dummy.For<SOShipment>(_graph))
                 {
                     MassProcess = true,
                     Arguments =

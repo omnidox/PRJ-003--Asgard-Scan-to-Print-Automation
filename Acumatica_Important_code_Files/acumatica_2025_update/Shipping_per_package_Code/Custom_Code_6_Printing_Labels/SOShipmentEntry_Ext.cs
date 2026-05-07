@@ -1,9 +1,12 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using PX.Data;
 using PX.Objects.SO;
+using PX.Objects.CS;
 using PX.SM;
+using PX.Objects.CR;
 
 namespace PX.Objects.SO
 {
