@@ -8,8 +8,10 @@ using AA.Objects.Core;
 using Asgard.Labels.Abstractions.Interface;
 using Asgard.Labels.Impl.Context;
 using Asgard.Labels.Impl.Poco;
+using Asgard.Labels.Impl.Language.MyScriban;  // ← For NewScribanUtils
 using PX.Data;
 using PX.Objects.SO;
+using Scriban;  // ← For TemplateContext
 
 namespace AA.Objects.AL.Integration.PerPackage
 {
@@ -521,6 +523,345 @@ namespace AA.Objects.AL.Integration.PerPackage
                 PXTrace.WriteInformation("[DIAG-GATE-PRINT] Exception message: {0}", ex.Message);
                 PXTrace.WriteInformation("[DIAG-GATE-PRINT] Defaulting to TRUE (allow printing) - native path will decide");
                 return true;  // ← ALLOW PRINTING ON REFLECTION ERROR
+            }
+        }
+
+        /// <summary>
+        /// ========================================================================
+        /// DYNAMIC MODEL RESOLUTION BY ASGARD RULES
+        /// ========================================================================
+        /// 
+        /// Dynamically resolves the correct Asgard label model for a shipment
+        /// by evaluating Asgard's own rule system, rather than hardcoding a model name.
+        /// 
+        /// This method:
+        /// 1. Queries all active ALModel records for SO302000 screen
+        /// 2. Filters for package-based models (ALPackages, ALiStarPackages)
+        /// 3. For each model, evaluates its PrintRuleID or FilterRuleID using NewScribanUtils
+        /// 4. Returns exactly one matching model, or throws clear errors for:
+        ///    - 0 matches: No model applies to this customer
+        ///    - 2+ matches: Multiple models match; need to adjust rules
+        /// 
+        /// Why use Asgard rules instead of hardcoding:
+        /// - Different customers need different labels (Target, Boscov, etc.)
+        /// - Asgard rules already encode this logic (Document.CustomerID.AcctName | string.Contains 'TARGET')
+        /// - Hardcoding bypasses Asgard's rule system, creating maintenance burden
+        /// - Using Asgard rules keeps label selection centralized and consistent
+        /// </summary>
+        public virtual Guid? ResolveModelIdByAsgardRules(SOShipment shipment)
+        {
+            PXTrace.WriteInformation("[MODEL-RESOLVE] ResolveModelIdByAsgardRules called for shipment: {0}", 
+                shipment?.ShipmentNbr ?? "null");
+
+            ValidateShipmentForAsgardPrint(shipment);
+
+            if (shipment == null)
+                throw new PXException("Shipment is null");
+
+            string shipmentNbr = shipment.ShipmentNbr;
+
+            PXTrace.WriteInformation("[MODEL-RESOLVE] Shipment={0}", shipmentNbr);
+
+            // ✅ Query all active ALModel records for SO302000 (Shipments screen)
+            // Filter for package-based models only (ALPackages, ALiStarPackages) in LINQ
+            List<ALModel> packageModels = PXSelect<
+                ALModel,
+                Where<
+                    ALModel.active, Equal<True>,
+                    And<ALModel.screenID, Equal<Required<ALModel.screenID>>>>>
+                .Select(_graph, "SO302000")
+                .Cast<ALModel>()
+                .Where(m => m.BasedOnView == "ALPackages" || m.BasedOnView == "ALiStarPackages")
+                .ToList();
+
+            PXTrace.WriteInformation("[MODEL-RESOLVE] Found {0} package-based models for SO302000", packageModels.Count);
+
+            if (packageModels.Count == 0)
+            {
+                throw new PXException(
+                    "No Asgard package label models found for screen SO302000. " +
+                    "Please create at least one label model based on ALPackages or ALiStarPackages.");
+            }
+
+            // ✅ Evaluate rules and collect matching models
+            List<ALModel> matchingModels = new List<ALModel>();
+
+            foreach (ALModel model in packageModels)
+            {
+                try
+                {
+                    PXTrace.WriteInformation("[RULE-EVAL] Evaluating model: {0} (ID: {1})", 
+                        model.Name, model.LabelID);
+
+                    // ✅ Prefer PrintRuleID; fall back to FilterRuleID
+                    Guid? ruleIdToEvaluate = model.PrintRuleID ?? model.FilterRuleID;
+
+                    if (ruleIdToEvaluate == null || ruleIdToEvaluate == Guid.Empty)
+                    {
+                        PXTrace.WriteInformation("[RULE-EVAL] Model {0} has no PrintRuleID or FilterRuleID - SKIP", 
+                            model.Name);
+                        continue;
+                    }
+
+                    string ruleSource = (model.PrintRuleID != null && model.PrintRuleID != Guid.Empty) 
+                        ? "PrintRuleID" 
+                        : "FilterRuleID";
+
+                    PXTrace.WriteInformation("[RULE-EVAL] Using {0}: {1}", ruleSource, ruleIdToEvaluate);
+
+                    // ✅ Load the rule record
+                    ALRule rule = LoadRuleById(ruleIdToEvaluate);
+
+                    if (rule == null)
+                    {
+                        throw new PXException(
+                            "Rule {0} referenced by model '{1}' could not be loaded from the database.",
+                            ruleIdToEvaluate, model.Name);
+                    }
+
+                    PXTrace.WriteInformation("[RULE-EVAL] Rule name: {0}", rule.Name);
+                    PXTrace.WriteInformation("[RULE-EVAL] Rule expression: {0}", rule.Expression ?? "null");
+
+                    if (string.IsNullOrWhiteSpace(rule.Expression))
+                    {
+                        throw new PXException(
+                            "Rule '{0}' (used by model '{1}') has an empty expression.",
+                            rule.Name, model.Name);
+                    }
+
+                    // ✅ Build Scriban context with shipment (Document will resolve from current shipment)
+                    TemplateContext scribanContext = BuildScribanContextForRuleEvaluation(shipment);
+
+                    if (scribanContext == null)
+                    {
+                        throw new PXException(
+                            "Failed to build Scriban context for evaluating rule '{0}' on model '{1}'.",
+                            rule.Name, model.Name);
+                    }
+
+                    // ✅ Evaluate the rule expression using CONFIRMED NewScribanUtils method
+                    bool matched = EvaluateRuleExpression(scribanContext, rule.Expression, rule.Name, model.Name);
+
+                    PXTrace.WriteInformation("[RULE-MATCH] Model {0}: rule evaluated to {1}", 
+                        model.Name, matched);
+
+                    if (matched)
+                    {
+                        matchingModels.Add(model);
+                        PXTrace.WriteInformation("[RULE-MATCH] ✅ Model {0} MATCHED", model.Name);
+                    }
+                    else
+                    {
+                        PXTrace.WriteInformation("[RULE-MATCH] ⊘ Model {0} did not match", model.Name);
+                    }
+                }
+                catch (PXException)
+                {
+                    // ✅ Re-throw PXException immediately (user-facing errors)
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // ✅ Convert other exceptions to PXException with clear context
+                    throw new PXException(
+                        "Error evaluating rule for model '{0}': {1}",
+                        model.Name, ex.Message);
+                }
+            }
+
+            // ✅ Check matching models count
+            PXTrace.WriteInformation("[MODEL-SELECT] Total matching models: {0}", matchingModels.Count);
+
+            if (matchingModels.Count == 0)
+            {
+                string modelList = string.Join(", ", packageModels.Select(m => m.Name));
+                throw new PXException(
+                    "No Asgard package label model matched this shipment ({0}). " +
+                    "Available models: {1}. " +
+                    "Please verify the Asgard label model rules on screen SO302000.",
+                    shipmentNbr,
+                    modelList);
+            }
+
+            if (matchingModels.Count > 1)
+            {
+                string matchedNames = string.Join(", ", matchingModels.Select(m => m.Name));
+                throw new PXException(
+                    "Multiple Asgard package label models matched shipment {0}: {1}. " +
+                    "Please adjust the Asgard model rules so only one package label model matches.",
+                    shipmentNbr,
+                    matchedNames);
+            }
+
+            // ✅ Exactly one match
+            Guid? selectedModelId = matchingModels[0].LabelID;
+            PXTrace.WriteInformation("[MODEL-SELECT] ✅ Selected model: {0} (ID: {1})", 
+                matchingModels[0].Name, selectedModelId);
+
+            return selectedModelId;
+        }
+
+        /// <summary>
+        /// Helper: Load an ALRule by ID from the database.
+        /// Throws PXException if rule not found.
+        /// </summary>
+        private ALRule LoadRuleById(Guid? ruleId)
+        {
+            if (ruleId == null || ruleId == Guid.Empty)
+                return null;
+
+            try
+            {
+                ALRule rule = PXSelect<
+                    ALRule,
+                    Where<ALRule.ruleID, Equal<Required<ALRule.ruleID>>>>
+                    .Select(_graph, ruleId);
+
+                if (rule == null)
+                {
+                    PXTrace.WriteInformation("[RULE-LOAD] Rule {0} not found in database", ruleId);
+                }
+
+                return rule;
+            }
+            catch (Exception ex)
+            {
+                PXTrace.WriteInformation("[RULE-LOAD] Error loading rule {0}: {1}", ruleId, ex.Message);
+                throw new PXException("Error loading rule {0} from database: {1}", ruleId, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Helper: Build a Scriban TemplateContext with the shipment as the current document.
+        /// This ensures that rule expressions like "Document.CustomerID.AcctName" resolve correctly.
+        /// 
+        /// The context is built using Asgard's ScribanUtils pattern:
+        /// - graph.Document.Current = shipment (so "Document" resolves in Scriban)
+        /// - ScribanUtils.CreateContext() populates the context with graph data
+        /// - Returns a TemplateContext ready for rule expression evaluation
+        /// 
+        /// Includes a validation probe to confirm Document.CustomerID.AcctName resolves correctly.
+        /// </summary>
+        private TemplateContext BuildScribanContextForRuleEvaluation(SOShipment shipment)
+        {
+            try
+            {
+                PXTrace.WriteInformation("[CONTEXT] Building Scriban context for shipment {0}", 
+                    shipment?.ShipmentNbr ?? "null");
+
+                // ✅ Ensure Document.Current is set to the shipment
+                // This makes "Document" resolve correctly in Scriban expressions
+                _graph.Document.Current = shipment;
+
+                // ✅ Create the Scriban context using Asgard's ScribanUtils
+                // Pass the graph INSTANCE (not type), the shipment row, no oldRow, devMode=false
+                TemplateContext scribanContext = ScribanUtils.CreateContext(
+                    _graph,         // ← Graph INSTANCE, not _graph.GetType()
+                    shipment,       // ← Row to use for context
+                    null,           // ← oldRow: not needed for rule evaluation
+                    false);         // ← devMode: false
+
+                if (scribanContext == null)
+                {
+                    throw new PXException("ScribanUtils.CreateContext returned null");
+                }
+
+                PXTrace.WriteInformation("[CONTEXT] ✅ Scriban context built successfully");
+
+                // ✅ CRITICAL VALIDATION PROBE
+                // Confirm that Document.CustomerID.AcctName resolves correctly
+                // If this probe fails, the entire dynamic rule system won't work
+                try
+                {
+                    object probe = NewScribanUtils.EvalExpr<object>(
+                        scribanContext,
+                        "Document.CustomerID.AcctName",
+                        null);
+
+                    PXTrace.WriteInformation("[CONTEXT-PROBE] Document.CustomerID.AcctName resolved to: {0}", 
+                        probe ?? "null");
+
+                    if (probe == null)
+                    {
+                        PXTrace.WriteWarning(
+                            "[CONTEXT-PROBE] ⚠️ WARNING: Document.CustomerID.AcctName evaluated to null. " +
+                            "Rule expressions that depend on customer name may fail.");
+                    }
+                    else
+                    {
+                        PXTrace.WriteInformation("[CONTEXT-PROBE] ✅ Document context is properly set up");
+                    }
+                }
+                catch (Exception probeEx)
+                {
+                    PXTrace.WriteWarning("[CONTEXT-PROBE] ⚠️ Error probing Document.CustomerID.AcctName: {0}", 
+                        probeEx.Message);
+                    PXTrace.WriteWarning(
+                        "[CONTEXT-PROBE] Rule expressions that reference Document may not evaluate correctly");
+                }
+
+                return scribanContext;
+            }
+            catch (Exception ex)
+            {
+                PXTrace.WriteInformation("[CONTEXT] ⚠️ Error building Scriban context: {0}", ex.Message);
+                throw new PXException("Error building Scriban context: {0}", ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Helper: Evaluate a Scriban rule expression using CONFIRMED NewScribanUtils.EvalExpr<bool>.
+        /// Returns true if the expression evaluates to true, false otherwise.
+        /// 
+        /// CONFIRMED signature from NewScribanUtils.cs:
+        /// public static T EvalExpr<T>(TemplateContext scribanContext, string scribanExpr, T defaultValue = default(T))
+        /// 
+        /// Important behavior from NewScribanUtils:
+        /// - Returns defaultValue if expression is null/empty
+        /// - Calls scribanExpr.ToScriban() internally
+        /// - Calls Template.Parse() and template.Evaluate()
+        /// - Calls scribanContext.CheckTemplateErrors() for parse errors (may throw through Asgard exception system)
+        /// - Throws AAException on type conversion failure
+        /// - Throws generic Exception on other evaluation errors
+        /// 
+        /// We catch both AAException and generic Exception and wrap them in PXException.
+        /// </summary>
+        private bool EvaluateRuleExpression(TemplateContext scribanContext, string expression, string ruleName, string modelName)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(expression))
+                {
+                    throw new PXException("Rule expression is empty");
+                }
+
+                PXTrace.WriteInformation("[EVAL-EXPR] Evaluating rule '{0}' for model '{1}'", ruleName, modelName);
+                PXTrace.WriteInformation("[EVAL-EXPR] Expression: {0}", expression);
+
+                // ✅ Use CONFIRMED NewScribanUtils.EvalExpr<bool> method signature
+                // NewScribanUtils.EvalExpr<T>(TemplateContext scribanContext, string scribanExpr, T defaultValue)
+                // Default value (false) ensures safe handling if evaluation returns null/empty
+                bool result = NewScribanUtils.EvalExpr<bool>(scribanContext, expression, false);
+
+                PXTrace.WriteInformation("[EVAL-EXPR] Expression evaluated to: {0}", result);
+                return result;
+            }
+            catch (PXException)
+            {
+                // ✅ Re-throw PXException immediately
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // ✅ Catch AAException (type conversion errors) and generic Exception (evaluation errors)
+                // and wrap them in PXException with full context
+                PXTrace.WriteInformation("[EVAL-EXPR] ⚠️ Error evaluating rule '{0}': {1}", ruleName, ex.Message);
+                PXTrace.WriteInformation("[EVAL-EXPR] Exception type: {0}", ex.GetType().FullName);
+                PXTrace.WriteInformation("[EVAL-EXPR] Stack trace: {0}", ex.StackTrace);
+                
+                throw new PXException(
+                    "Error evaluating rule '{0}' (used by model '{1}'). Expression: '{2}'. Error: {3}",
+                    ruleName, modelName, expression, ex.Message);
             }
         }
     }

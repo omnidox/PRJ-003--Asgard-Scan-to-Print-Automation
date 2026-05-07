@@ -310,12 +310,9 @@ namespace AA.Objects.AL.Integration.PerPackage
             
             var service = new AsgardLabelService(graph, _labelGenerator);
 
-            // ✅ CRITICAL: Resolve model explicitly BEFORE delegating
-            // The model's BasedOnView determines the row structure
-            const bool preferBoxPrintModel = false;
-            const string fallbackModelName = "iStar-8A-Packing for Boscov";
-
-            Guid? modelId = service.ResolveModelId(fallbackModelName, preferBoxPrintModel);
+            // ✅ CRITICAL: Dynamically resolve the correct model based on Asgard rules
+            // This replaces hardcoding and uses Asgard's confirmed rule evaluation system
+            Guid? modelId = service.ResolveModelIdByAsgardRules(shipmentInLongOp);
 
             if (modelId == null || modelId == Guid.Empty)
             {
