@@ -4,10 +4,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using AA.Objects.Labels;
-using AA.Objects.Core;
 using Asgard.Labels.Abstractions.Interface;
-using Asgard.Labels.Impl.Context;  // ← VERIFY: May be unused - remove if compilation succeeds without it
-using Asgard.Labels.Impl.Poco;      // ← VERIFY: May be unused - remove if compilation succeeds without it
+using Asgard.Labels.Impl.Context;  
+using Asgard.Labels.Impl.Poco;      
 using Asgard.Labels.Impl.Language.MyScriban;  // ← REQUIRED: For NewScribanUtils
 using PX.Data;
 using PX.Objects.SO;
@@ -855,28 +854,20 @@ namespace AA.Objects.AL.Integration.PerPackage
                 // ✅ Re-throw PXException immediately
                 throw;
             }
-            catch (AAException aaEx)
-            {
-                // ✅ Catch AAException (type conversion errors from NewScribanUtils)
-                // and wrap it in PXException with full context
-                PXTrace.WriteInformation("[EVAL-EXPR] ⚠️ AAException evaluating rule '{0}': {1}", ruleName, aaEx.Message);
-                PXTrace.WriteInformation("[EVAL-EXPR] Stack trace: {0}", aaEx.StackTrace);
-                
-                throw new PXException(
-                    "Error evaluating rule '{0}' (used by model '{1}'). Expression: '{2}'. Error: {3}",
-                    ruleName, modelName, expression, aaEx.Message);
-            }
             catch (Exception ex)
             {
-                // ✅ Catch generic Exception (other evaluation errors)
-                // and wrap it in PXException with full context
                 PXTrace.WriteInformation("[EVAL-EXPR] ⚠️ Error evaluating rule '{0}': {1}", ruleName, ex.Message);
                 PXTrace.WriteInformation("[EVAL-EXPR] Exception type: {0}", ex.GetType().FullName);
                 PXTrace.WriteInformation("[EVAL-EXPR] Stack trace: {0}", ex.StackTrace);
-                
-                throw new PXException(
-                    "Error evaluating rule '{0}' (used by model '{1}'). Expression: '{2}'. Error: {3}",
-                    ruleName, modelName, expression, ex.Message);
+
+                string message = string.Format(
+                    "Error evaluating rule '{0}' used by model '{1}'. Expression: '{2}'. Error: {3}",
+                    ruleName,
+                    modelName,
+                    expression,
+                    ex.Message);
+
+                throw new PXException(message);
             }
         }
     }
