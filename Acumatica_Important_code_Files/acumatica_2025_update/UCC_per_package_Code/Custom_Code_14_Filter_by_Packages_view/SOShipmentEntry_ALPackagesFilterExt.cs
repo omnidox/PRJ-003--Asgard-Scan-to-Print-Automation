@@ -6,23 +6,37 @@ using PX.Objects.SO;
 namespace AA.Objects.AL.Integration.PerPackage
 {
     /// <summary>
-    /// Generic Asgard view filter extension that intercepts both ALPackages and ALiStarPackages views.
+    /// Generic Acumatica package view filter extension that intercepts package-related views.
     /// 
-    /// CRITICAL: This extension must filter the ACTUAL view that the Asgard model uses (BasedOnView).
-    /// For models based on ALiStarPackages (a joined view with multiple tables), we must:
-    /// 1. Intercept the ALiStarPackages view (not just ALPackages)
-    /// 2. Filter the PXResult rows to match the selected package
-    /// 3. Let Asgard receive the proper joined row structure (PXResult<SOPackageDetail, SOShipment, SOOrder, CSBox, InventoryItem>)
+    /// SUPPORTED VIEWS:
+    /// - "Packages"         - Native Acumatica package grid (SOPackageDetail/SOPackageDetailEx)
+    /// - "ALPackages"       - Asgard label view (basic package structure)
+    /// - "ALiStarPackages"  - Asgard label view (joined with iStar custom fields)
     /// 
-    /// The filter works by:
-    /// - Capturing the original view in Initialize()
-    /// - Replacing it with a filtered delegate that checks ALPackagesFilterScope
-    /// - Yielding only the row matching the selected package
+    /// CRITICAL: This extension filters views only while ALPackagesFilterScope is ACTIVE.
+    /// When scope is inactive, original view behavior is fully preserved.
+    /// 
+    /// FILTERING LOGIC:
+    /// - Captures original view in Initialize()
+    /// - Replaces with filtered delegate that checks ALPackagesFilterScope.IsActive
+    /// - If active: yields only rows matching selected package (ShipmentNbr + LineNbr)
+    /// - If inactive: yields all rows unchanged
+    /// - Preserves row shape (PXResult, joined rows, original structure)
+    /// 
+    /// ROW SHAPE PRESERVATION:
+    /// For joined views like ALiStarPackages, the original row is a PXResult with multiple tables.
+    /// This extension unwraps only the SOPackageDetail for filtering logic, but yields the
+    /// entire original row object to maintain joined structure for Asgard.
     /// </summary>
     public class SOShipmentEntry_AsgardViewFilterExt : PXGraphExtension<SOShipmentEntry>
     {
+        // Store original views for reference
+        private PXView _originalPackagesView;
         private PXView _originalALPackagesView;
         private PXView _originalALiStarPackagesView;
+
+        // List of views to filter
+        private static readonly string[] ViewsToFilter = new[] { "Packages", "ALPackages", "ALiStarPackages" };
 
         public static bool IsActive()
         {
@@ -33,99 +47,149 @@ namespace AA.Objects.AL.Integration.PerPackage
         {
             base.Initialize();
 
-            // ✅ CRITICAL FIX: Filter BOTH views that Asgard models might use
-            FilterViewIfExists("ALPackages");
-            FilterViewIfExists("ALiStarPackages");
+            PXTrace.WriteInformation("[VIEW-FILTER-INIT] ========== SOShipmentEntry_AsgardViewFilterExt.Initialize() ==========");
+            PXTrace.WriteInformation("[VIEW-FILTER-INIT] Base.Views count: {0}", Base.Views.Count);
+
+            // Filter each supported view
+            foreach (string viewName in ViewsToFilter)
+            {
+                FilterViewIfExists(viewName);
+            }
+
+            PXTrace.WriteInformation("[VIEW-FILTER-INIT] ========== Initialization complete ==========");
         }
 
         /// <summary>
-        /// Generic method to filter any Asgard view by name.
-        /// Replaces the original view with a filtered delegate that checks ALPackagesFilterScope.
+        /// Generic method to wrap any supported view with a filter delegate.
+        /// If view does not exist, logs and skips safely.
         /// </summary>
         private void FilterViewIfExists(string viewName)
         {
             if (!Base.Views.ContainsKey(viewName))
             {
-                PXTrace.WriteInformation("[VIEW-FILTER] View '{0}' does not exist in SOShipmentEntry", viewName);
+                PXTrace.WriteInformation("[VIEW-FILTER-INIT] View '{0}' does not exist in Base.Views - skipping", viewName);
                 return;
             }
 
             PXView originalView = Base.Views[viewName];
             if (originalView == null)
             {
-                PXTrace.WriteInformation("[VIEW-FILTER] View '{0}' is NULL", viewName);
+                PXTrace.WriteInformation("[VIEW-FILTER-INIT] View '{0}' exists but is NULL - skipping", viewName);
                 return;
             }
 
-            // Store reference based on view name
-            if (viewName == "ALPackages")
-                _originalALPackagesView = originalView;
-            else if (viewName == "ALiStarPackages")
-                _originalALiStarPackagesView = originalView;
+            PXTrace.WriteInformation("[VIEW-FILTER-INIT] Found view '{0}' - wrapping with filter delegate", viewName);
+            PXTrace.WriteInformation("[VIEW-FILTER-INIT] View '{0}' BqlSelect type: {1}", 
+                viewName, originalView.BqlSelect?.GetType().FullName ?? "null");
 
-            // Replace with filtered delegate
-            // Use a closure to capture the viewName and originalView
+            // Store reference based on view name for debugging
+            switch (viewName)
+            {
+                case "Packages":
+                    _originalPackagesView = originalView;
+                    break;
+                case "ALPackages":
+                    _originalALPackagesView = originalView;
+                    break;
+                case "ALiStarPackages":
+                    _originalALiStarPackagesView = originalView;
+                    break;
+            }
+
+            // Replace view with filtered delegate
+            // Use closure to capture viewName and originalView
             Base.Views[viewName] = new PXView(
                 Base,
                 true,
                 originalView.BqlSelect,
-                new PXSelectDelegate(() => FilteredAsgardView(viewName, originalView)));
+                new PXSelectDelegate(() => FilteredPackageView(viewName, originalView)));
 
-            PXTrace.WriteInformation("[VIEW-FILTER] ✅ Base.Views['{0}'] replaced with filtered view", viewName);
-            PXTrace.WriteInformation("[VIEW-FILTER] Original BqlSelect type: {0}", 
-                originalView.BqlSelect?.GetType().FullName ?? "null");
+            PXTrace.WriteInformation("[VIEW-FILTER-INIT] ✅ Base.Views['{0}'] successfully wrapped with filtered delegate", viewName);
         }
 
         /// <summary>
-        /// Generic filtered view delegate for any Asgard view.
-        /// Yields only the package row that matches ALPackagesFilterScope.
+        /// Generic filtered view delegate for package-related views.
+        /// 
+        /// Behavior:
+        /// - If ALPackagesFilterScope is NOT active: yields ALL rows unchanged (normal behavior)
+        /// - If ALPackagesFilterScope IS active: yields ONLY rows matching selected package
+        /// 
+        /// Row Shape:
+        /// - Unwraps SOPackageDetail for filtering logic only
+        /// - Yields entire original row object (preserves PXResult and joined structure)
         /// </summary>
-        protected virtual IEnumerable FilteredAsgardView(string viewName, PXView originalView)
+        protected virtual IEnumerable FilteredPackageView(string viewName, PXView originalView)
         {
             if (originalView == null)
+            {
+                PXTrace.WriteInformation("[FILTER-{0}] originalView is NULL - yielding nothing", viewName);
                 yield break;
+            }
 
+            // ✅ Query the original view with current Document context
             object[] currents = new object[] { Base.Document.Current };
             IEnumerable rawRows = originalView.SelectMultiBound(currents);
 
+            // ✅ If filter scope is NOT active, pass through all rows unchanged
             if (!ALPackagesFilterScope.IsActive)
             {
-                PXTrace.WriteInformation("[FILTER-{0}] ALPackagesFilterScope is NOT active - returning all rows", viewName);
+                PXTrace.WriteInformation("[FILTER-{0}] ALPackagesFilterScope is INACTIVE - returning all rows", viewName);
+                
+                int passthrough = 0;
                 foreach (object row in rawRows)
+                {
+                    passthrough++;
                     yield return row;
+                }
+                
+                PXTrace.WriteInformation("[FILTER-{0}] Passed through {1} rows (scope inactive)", viewName, passthrough);
                 yield break;
             }
 
-            PXTrace.WriteInformation("[FILTER-{0}] ALPackagesFilterScope IS active for shipment {1}", 
-                viewName, ALPackagesFilterScope.ShipmentNbr);
-
+            // ✅ Filter scope IS active - filter rows by selected package
             string currentShipmentNbr = Base.Document.Current?.ShipmentNbr;
-            int filteredCount = 0;
-            int totalCount = 0;
+            PXTrace.WriteInformation("[FILTER-{0}] ALPackagesFilterScope IS ACTIVE for shipment '{1}'", 
+                viewName, currentShipmentNbr ?? "null");
+
+            int totalRows = 0;
+            int filteredRows = 0;
+            int rejectedRows = 0;
 
             foreach (object row in rawRows)
             {
-                // Unwrap SOPackageDetail from the row (works for both ALPackages and ALiStarPackages)
-                SOPackageDetail package = PXResult.Unwrap<SOPackageDetail>(row);
-                if (package == null)
-                    continue;
+                totalRows++;
 
-                totalCount++;
-
-                if (!ALPackagesFilterScope.Matches(currentShipmentNbr, package.LineNbr))
+                // ✅ Unwrap SOPackageDetail from the row
+                // Works for both simple rows (Packages, ALPackages) and joined rows (ALiStarPackages)
+                SOPackageDetail packageDetail = PXResult.Unwrap<SOPackageDetail>(row);
+                
+                if (packageDetail == null)
                 {
-                    PXTrace.WriteInformation("[FILTER-{0}] Package LineNbr={1} does NOT match filter", 
-                        viewName, package.LineNbr);
+                    PXTrace.WriteInformation("[FILTER-{0}] Row {1}: Could not unwrap SOPackageDetail from row type {2}", 
+                        viewName, totalRows, row.GetType().Name);
+                    rejectedRows++;
                     continue;
                 }
 
-                filteredCount++;
-                PXTrace.WriteInformation("[FILTER-{0}] Package LineNbr={1} MATCHES filter - yielding row type {2}", 
-                    viewName, package.LineNbr, row.GetType().Name);
-                yield return row;  // ✅ Yield the entire row (PXResult), not just the package
+                // ✅ Check if this package matches the active filter scope
+                if (!ALPackagesFilterScope.Matches(currentShipmentNbr, packageDetail.LineNbr))
+                {
+                    PXTrace.WriteInformation("[FILTER-{0}] Row {1}: Package ShipmentNbr='{2}', LineNbr={3} - NO MATCH", 
+                        viewName, totalRows, packageDetail.ShipmentNbr ?? "null", packageDetail.LineNbr);
+                    rejectedRows++;
+                    continue;
+                }
+
+                // ✅ Row matches filter - yield entire original row (preserves row shape)
+                filteredRows++;
+                PXTrace.WriteInformation("[FILTER-{0}] Row {1}: Package ShipmentNbr='{2}', LineNbr={3} - ✅ MATCH (row type: {4})", 
+                    viewName, totalRows, packageDetail.ShipmentNbr ?? "null", packageDetail.LineNbr, row.GetType().Name);
+                
+                yield return row;
             }
 
-            PXTrace.WriteInformation("[FILTER-{0}] Filtered {1} out of {2} rows", viewName, filteredCount, totalCount);
+            PXTrace.WriteInformation("[FILTER-{0}] Summary: Total={1}, Accepted={2}, Rejected={3}", 
+                viewName, totalRows, filteredRows, rejectedRows);
         }
     }
 }

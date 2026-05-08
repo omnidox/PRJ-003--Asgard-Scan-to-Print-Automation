@@ -593,7 +593,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             PXTrace.WriteInformation("[MODEL-RESOLVE] Shipment={0}", shipmentNbr);
 
             // ✅ Query all active ALModel records for SO302000 (Shipments screen)
-            // Filter for package-based models only (ALPackages, ALiStarPackages) in LINQ
+            // Filter for package-based models (Packages, ALPackages, ALiStarPackages) in LINQ
             List<ALModel> packageModels = PXSelect<
                 ALModel,
                 Where<
@@ -601,16 +601,18 @@ namespace AA.Objects.AL.Integration.PerPackage
                     And<ALModel.screenID, Equal<Required<ALModel.screenID>>>>>
                 .Select(_graph, "SO302000")
                 .RowCast<ALModel>()
-                .Where(m => m.BasedOnView == "ALPackages" || m.BasedOnView == "ALiStarPackages")
+                .Where(m => m.BasedOnView == "Packages" 
+                         || m.BasedOnView == "ALPackages" 
+                         || m.BasedOnView == "ALiStarPackages")
                 .ToList();
 
-            PXTrace.WriteInformation("[MODEL-RESOLVE] Found {0} package-based models for SO302000", packageModels.Count);
+            PXTrace.WriteInformation("[MODEL-RESOLVE] Found {0} package-based models for SO302000 (supporting Packages, ALPackages, ALiStarPackages)", packageModels.Count);
 
             if (packageModels.Count == 0)
             {
                 throw new PXException(
                     "No Asgard package label models found for screen SO302000. " +
-                    "Please create at least one label model based on ALPackages or ALiStarPackages.");
+                    "Please create at least one label model based on Packages, ALPackages, or ALiStarPackages.");
             }
 
             // ✅ Evaluate rules and collect matching models
