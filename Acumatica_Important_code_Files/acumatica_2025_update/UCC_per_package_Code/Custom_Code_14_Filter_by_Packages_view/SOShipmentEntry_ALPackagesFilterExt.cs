@@ -61,17 +61,24 @@ namespace AA.Objects.AL.Integration.PerPackage
 
         /// <summary>
         /// Generic method to wrap any supported view with a filter delegate.
+        /// Uses safe null-check pattern instead of ContainsKey (safer for PXViewCollection).
         /// If view does not exist, logs and skips safely.
         /// </summary>
         private void FilterViewIfExists(string viewName)
         {
-            if (!Base.Views.ContainsKey(viewName))
+            PXView originalView = null;
+            
+            // ✅ Safe pattern: attempt to access view, catch if not found
+            try
+            {
+                originalView = Base.Views[viewName];
+            }
+            catch
             {
                 PXTrace.WriteInformation("[VIEW-FILTER-INIT] View '{0}' does not exist in Base.Views - skipping", viewName);
                 return;
             }
 
-            PXView originalView = Base.Views[viewName];
             if (originalView == null)
             {
                 PXTrace.WriteInformation("[VIEW-FILTER-INIT] View '{0}' exists but is NULL - skipping", viewName);
@@ -147,9 +154,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             }
 
             // ✅ Filter scope IS active - filter rows by selected package
-            string currentShipmentNbr = Base.Document.Current?.ShipmentNbr;
-            PXTrace.WriteInformation("[FILTER-{0}] ALPackagesFilterScope IS ACTIVE for shipment '{1}'", 
-                viewName, currentShipmentNbr ?? "null");
+            PXTrace.WriteInformation("[FILTER-{0}] ALPackagesFilterScope IS ACTIVE", viewName);
 
             int totalRows = 0;
             int filteredRows = 0;
@@ -172,7 +177,8 @@ namespace AA.Objects.AL.Integration.PerPackage
                 }
 
                 // ✅ Check if this package matches the active filter scope
-                if (!ALPackagesFilterScope.Matches(currentShipmentNbr, packageDetail.LineNbr))
+                // Use the ROW's shipment number, not Document.Current
+                if (!ALPackagesFilterScope.Matches(packageDetail.ShipmentNbr, packageDetail.LineNbr))
                 {
                     PXTrace.WriteInformation("[FILTER-{0}] Row {1}: Package ShipmentNbr='{2}', LineNbr={3} - NO MATCH", 
                         viewName, totalRows, packageDetail.ShipmentNbr ?? "null", packageDetail.LineNbr);

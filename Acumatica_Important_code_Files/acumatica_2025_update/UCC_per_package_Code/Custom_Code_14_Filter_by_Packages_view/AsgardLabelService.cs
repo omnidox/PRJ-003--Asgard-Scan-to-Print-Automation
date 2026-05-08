@@ -625,19 +625,21 @@ namespace AA.Objects.AL.Integration.PerPackage
                     PXTrace.WriteInformation("[RULE-EVAL] Evaluating model: {0} (ID: {1})", 
                         model.Name, model.LabelID);
 
-                    // ✅ Prefer PrintRuleID; fall back to FilterRuleID
-                    Guid? ruleIdToEvaluate = model.PrintRuleID ?? model.FilterRuleID;
+                    // ✅ Prefer FilterRuleID; fall back to PrintRuleID
+                    // Reason: PrintRuleID / "Prints when" can block label generation
+                    // FilterRuleID / "Enabled when" is safer for model selection
+                    Guid? ruleIdToEvaluate = model.FilterRuleID ?? model.PrintRuleID;
 
                     if (ruleIdToEvaluate == null || ruleIdToEvaluate == Guid.Empty)
                     {
-                        PXTrace.WriteInformation("[RULE-EVAL] Model {0} has no PrintRuleID or FilterRuleID - SKIP", 
+                        PXTrace.WriteInformation("[RULE-EVAL] Model {0} has no FilterRuleID or PrintRuleID - SKIP", 
                             model.Name);
                         continue;
                     }
 
-                    string ruleSource = (model.PrintRuleID != null && model.PrintRuleID != Guid.Empty) 
-                        ? "PrintRuleID" 
-                        : "FilterRuleID";
+                    string ruleSource = (model.FilterRuleID != null && model.FilterRuleID != Guid.Empty) 
+                        ? "FilterRuleID" 
+                        : "PrintRuleID";
 
                     PXTrace.WriteInformation("[RULE-EVAL] Using {0}: {1}", ruleSource, ruleIdToEvaluate);
 
