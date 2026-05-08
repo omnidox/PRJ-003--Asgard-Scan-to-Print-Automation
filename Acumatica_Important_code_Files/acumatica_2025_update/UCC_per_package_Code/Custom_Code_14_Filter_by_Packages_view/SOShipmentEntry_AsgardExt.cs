@@ -214,7 +214,8 @@ namespace AA.Objects.AL.Integration.PerPackage
             {
                 PXTrace.WriteInformation("[PKG-ALL] WARNING: currentSelected is NULL - cannot log fields");
             }
-
+            
+            // Base.IsDirty means: “The current SOShipmentEntry graph has unsaved changes.”
             if (Base.IsDirty)
             {
                 Base.Actions.PressSave();
