@@ -6,15 +6,40 @@ using PX.Objects.SO;
 namespace AA.Objects.AL.Integration.PerPackage
 {
     /// <summary>
-    /// Generic Acumatica package view filter extension that intercepts package-related views.
+    /// Acumatica package view filter extension that intercepts package-related views.
+    /// 
+    /// ⚠️ TEST-ONLY VERSION - DO NOT APPLY TO PRODUCTION YET
+    /// This version wraps three views: Packages, ALPackages, and ALiStarPackages.
+    /// Safety concerns must be verified before production deployment.
     /// 
     /// SUPPORTED VIEWS:
     /// - "Packages"         - Native Acumatica package grid (SOPackageDetail/SOPackageDetailEx)
     /// - "ALPackages"       - Asgard label view (basic package structure)
     /// - "ALiStarPackages"  - Asgard label view (joined with iStar custom fields)
     /// 
-    /// CRITICAL: This extension filters views only while ALPackagesFilterScope is ACTIVE.
-    /// When scope is inactive, original view behavior is fully preserved.
+    /// ⚠️ CRITICAL SAFETY NOTE #1: Wrapping "Packages" View
+    /// Replacing Base.Views["Packages"] globally on the graph could have side effects if:
+    /// - Acumatica's UI depends on specific PXView delegate behavior
+    /// - Carrier integration depends on original view state (parameters, sorts, filters)
+    /// - Paging, searches, or UI behaviors differ with the replacement delegate
+    /// 
+    /// TESTING REQUIRED BEFORE PRODUCTION:
+    /// - Verify native Shipments UI still shows all packages correctly
+    /// - Verify carrier/shipping operations not affected when scope is inactive
+    /// - Confirm no UI sorting, paging, or filtering issues
+    /// - Test with multiple shipments to verify scope isolation
+    /// 
+    /// ⚠️ CRITICAL SAFETY NOTE #2: SelectMultiBound(currents) Pattern
+    /// The current delegate uses: originalView.SelectMultiBound(currents)
+    /// This may not fully preserve original PXView behavior if the view depends on:
+    /// - PXView parameters beyond currents
+    /// - Search columns or filters
+    /// - Sort order or descendings
+    /// - Start row / maximum rows (paging)
+    /// 
+    /// If testing reveals UI/paging/sorting issues, may need to:
+    /// - Use a more complete delegate pattern that preserves all view state
+    /// - Consider only wrapping ALPackages/ALiStarPackages (avoid Packages)
     /// 
     /// FILTERING LOGIC:
     /// - Captures original view in Initialize()
@@ -27,6 +52,12 @@ namespace AA.Objects.AL.Integration.PerPackage
     /// For joined views like ALiStarPackages, the original row is a PXResult with multiple tables.
     /// This extension unwraps only the SOPackageDetail for filtering logic, but yields the
     /// entire original row object to maintain joined structure for Asgard.
+    /// 
+    /// NOTE: PXResult.Unwrap<SOPackageDetail>(row) should work for all three views:
+    /// - Packages: Returns SOPackageDetailEx directly or wrapped in PXResult
+    /// - ALPackages: Returns SOPackageDetail wrapped in PXResult
+    /// - ALiStarPackages: Returns complex PXResult with SOPackageDetail as primary
+    /// Unwrap will extract SOPackageDetail from any of these structures.
     /// </summary>
     public class SOShipmentEntry_AsgardViewFilterExt : PXGraphExtension<SOShipmentEntry>
     {
@@ -133,7 +164,11 @@ namespace AA.Objects.AL.Integration.PerPackage
                 yield break;
             }
 
-            // ✅ Query the original view with current Document context
+            // ⚠️ WARNING: SelectMultiBound(currents) Pattern
+            // This retrieves rows from the original view using only the current document as context.
+            // If the original view depends on additional PXView state (parameters, searches, sorts,
+            // paging, filters, etc.), this pattern may not fully preserve that behavior.
+            // This is TEST code and should be verified before production deployment.
             object[] currents = new object[] { Base.Document.Current };
             IEnumerable rawRows = originalView.SelectMultiBound(currents);
 
