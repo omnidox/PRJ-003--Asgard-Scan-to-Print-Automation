@@ -340,15 +340,45 @@ namespace PX.Objects.SO
 
             // CASE 2: All packages already tracked.
             // Do NOT call baseMethod, because baseMethod may contact the carrier again.
+            // However, we must still validate packed quantities if carrier requires it.
             if (packagesWithTracking == totalPackages)
             {
                 PXTrace.WriteWarning(
                     "[SHIP-PACKAGES-SAFE-GUARD] All packages already have tracking. Skipping native carrier ShipPackages to prevent duplicate carrier shipment generation.");
 
+                // ================================================================
+                // PRESERVE NATIVE VALIDATION: Check if carrier requires packed qty validation
+                // ================================================================
+                Carrier carrier = Carrier.PK.Find(Base, shiporder.ShipVia);
+                if (carrier != null && carrier.ValidatePackedQty == true)
+                {
+                    PXTrace.WriteInformation(
+                        "[SHIP-PACKAGES-SAFE-GUARD] Carrier {0} requires packed quantity validation. Validating before skipping carrier generation.",
+                        carrier.CarrierID);
+
+                    // Run equivalent of Acumatica's ValidatePackagedQuantities
+                    ValidatePackagedQuantities(shiporder);
+
+                    PXTrace.WriteInformation(
+                        "[SHIP-PACKAGES-SAFE-GUARD] ✅ Packed quantity validation passed.");
+                }
+                else if (carrier != null)
+                {
+                    PXTrace.WriteInformation(
+                        "[SHIP-PACKAGES-SAFE-GUARD] Carrier {0} does not require packed quantity validation.",
+                        carrier.CarrierID);
+                }
+                else
+                {
+                    PXTrace.WriteWarning(
+                        "[SHIP-PACKAGES-SAFE-GUARD] Carrier {0} not found. Skipping validation.",
+                        shiporder.ShipVia);
+                }
+
                 EnsureShippedViaCarrierWhenAllPackagesTracked(shiporder);
 
                 PXTrace.WriteInformation(
-                    "[SHIP-PACKAGES-SAFE-GUARD] Exiting ShipPackages without calling baseMethod.");
+                    "[SHIP-PACKAGES-SAFE-GUARD] Exiting ShipPackages without calling baseMethod (all packages already tracked).");
                 return;
             }
 
@@ -366,8 +396,10 @@ namespace PX.Objects.SO
                 return;
             }
 
-            // CASE 4: Mixed state.
-            // This is intentionally blocked for now.
+            // CASE 4: Mixed state (some packages have tracking, some do not).
+            // This is INTENTIONALLY BLOCKED to prevent duplicate FedEx/UPS shipment generation.
+            // We do NOT use GetPackages filtering for mixed state - instead, we throw an exception.
+            // This is the safest approach: fail fast before contacting carrier.
             PXTrace.WriteError(
                 "[SHIP-PACKAGES-SAFE-GUARD] ❌ MIXED STATE DETECTED - {0} packages have tracking, {1} packages need tracking. Throwing exception.",
                 packagesWithTracking,
@@ -378,6 +410,141 @@ namespace PX.Objects.SO
                 "Some packages already have carrier tracking, while others do not. " +
                 "To prevent duplicate FedEx/UPS shipment generation, native carrier processing will not run in this mixed state. " +
                 "Please generate labels for the remaining untracked packages individually first, then confirm the shipment again.");
+        }
+
+        /// <summary>
+        /// Validate that all shipment lines/splits have matching packed quantities.
+        /// This mimics Acumatica's native ValidatePackagedQuantities logic to preserve
+        /// the native validation behavior while still preventing duplicate carrier generation.
+        /// 
+        /// Purpose:
+        /// When all packages already have tracking, we skip baseMethod to avoid FedEx/UPS
+        /// carrier call. However, we must still enforce packed quantity validation if the
+        /// carrier requires it (carrier.ValidatePackedQty == true).
+        /// 
+        /// Logic:
+        /// - Only validate for Issue shipments (not Returns, Transfers, etc)
+        /// - For each SOShipLine where LineType is Inventory:
+        ///   - Check if BaseShippedQty != BasePackedQty
+        ///   - For tracked items or kit items, this is an error
+        /// - For each SOShipLineSplit:
+        ///   - Check if BaseQty != BasePackedQty
+        /// 
+        /// Throws PXException if validation fails (similar to native Acumatica).
+        /// </summary>
+        private void ValidatePackagedQuantities(SOShipment shipment)
+        {
+            if (shipment == null)
+                return;
+
+            // Reload shipment to ensure current state
+            SOShipment current = Base.Document.Search<SOShipment.shipmentNbr>(shipment.ShipmentNbr);
+            if (current == null)
+                return;
+
+            // Only validate Issue shipments (not Returns, Transfers, etc)
+            if (current.ShipmentType != SOShipmentType.Issue)
+            {
+                PXTrace.WriteInformation(
+                    "[VALIDATE-PKD-QTY] Skipping validation - shipment type is {0}, not Issue.",
+                    current.ShipmentType);
+                return;
+            }
+
+            PXTrace.WriteInformation(
+                "[VALIDATE-PKD-QTY] Validating packed quantities for shipment {0}",
+                current.ShipmentNbr);
+
+            // Query all shipment lines
+            var shipLines = PXSelect<
+                SOShipLine,
+                Where<SOShipLine.shipmentNbr, Equal<Required<SOShipLine.shipmentNbr>>>>
+                .Select(Base, current.ShipmentNbr)
+                .RowCast<SOShipLine>()
+                .ToList();
+
+            PXTrace.WriteInformation(
+                "[VALIDATE-PKD-QTY] Found {0} shipment lines",
+                shipLines.Count);
+
+            // Check each shipment line
+            foreach (var shipLine in shipLines)
+            {
+                // Only validate Inventory type lines
+                if (shipLine.LineType != SOLineType.Inventory)
+                {
+                    PXTrace.WriteInformation(
+                        "[VALIDATE-PKD-QTY] Skipping LineNbr={0} - LineType is {1}, not Inventory",
+                        shipLine.LineNbr,
+                        shipLine.LineType);
+                    continue;
+                }
+
+                PXTrace.WriteInformation(
+                    "[VALIDATE-PKD-QTY] Checking LineNbr={0}, BaseShippedQty={1}, BasePackedQty={2}",
+                    shipLine.LineNbr,
+                    shipLine.BaseShippedQty,
+                    shipLine.BasePackedQty);
+
+                // Check if shipped qty != packed qty
+                if (shipLine.BaseShippedQty != shipLine.BasePackedQty)
+                {
+                    // Find the inventory item to get InventoryCD for error message
+                    InventoryItem item = InventoryItem.PK.Find(Base, shipLine.InventoryID);
+                    string itemCD = item?.InventoryCD?.Trim() ?? $"(ID: {shipLine.InventoryID})";
+
+                    // For tracked items or non-kit items, throw error
+                    if (item != null && (item.StkItem == true || item.KitItem != true))
+                    {
+                        PXTrace.WriteError(
+                            "[VALIDATE-PKD-QTY] ❌ LineNbr={0} ({1}) - Shipped qty {2} != Packed qty {3}",
+                            shipLine.LineNbr,
+                            itemCD,
+                            shipLine.BaseShippedQty,
+                            shipLine.BasePackedQty);
+
+                        throw new PXException(Messages.ShipmentLineQuantityNotPacked, itemCD);
+                    }
+                }
+
+                // Check splits
+                var splits = PXSelect<
+                    SOShipLineSplit,
+                    Where<SOShipLineSplit.shipmentNbr, Equal<Required<SOShipLineSplit.shipmentNbr>>,
+                        And<SOShipLineSplit.lineNbr, Equal<Required<SOShipLineSplit.lineNbr>>>>>
+                    .Select(Base, current.ShipmentNbr, shipLine.LineNbr)
+                    .RowCast<SOShipLineSplit>()
+                    .ToList();
+
+                foreach (var split in splits)
+                {
+                    PXTrace.WriteInformation(
+                        "[VALIDATE-PKD-QTY] Checking split LineNbr={0}, SplitLineNbr={1}, BaseQty={2}, BasePackedQty={3}",
+                        split.LineNbr,
+                        split.SplitLineNbr,
+                        split.BaseQty,
+                        split.BasePackedQty);
+
+                    if (split.BaseQty != split.BasePackedQty)
+                    {
+                        InventoryItem item = InventoryItem.PK.Find(Base, shipLine.InventoryID);
+                        string itemCD = item?.InventoryCD?.Trim() ?? $"(ID: {shipLine.InventoryID})";
+
+                        PXTrace.WriteError(
+                            "[VALIDATE-PKD-QTY] ❌ Split LineNbr={0}, SplitLineNbr={1} ({2}) - Qty {3} != PackedQty {4}",
+                            split.LineNbr,
+                            split.SplitLineNbr,
+                            itemCD,
+                            split.BaseQty,
+                            split.BasePackedQty);
+
+                        throw new PXException(Messages.ShipmentLineQuantityNotPacked, itemCD);
+                    }
+                }
+            }
+
+            PXTrace.WriteInformation(
+                "[VALIDATE-PKD-QTY] ✅ All packed quantities validated successfully");
         }
 
         /// <summary>
@@ -430,9 +597,12 @@ namespace PX.Objects.SO
 
             current.ShippedViaCarrier = true;
             Base.Document.Update(current);
-            Base.Save.Press();
 
-            PXTrace.WriteInformation("[ENSURE-SHIPPED-VIA-CARRIER] ✅ ShippedViaCarrier set and saved");
+            // NOTE: Do NOT call Base.Save.Press() here.
+            // Let the native ConfirmShipment flow handle the transaction save.
+            // This ensures we remain within the original transaction context.
+
+            PXTrace.WriteInformation("[ENSURE-SHIPPED-VIA-CARRIER] ✅ ShippedViaCarrier set (save deferred to native flow)");
         }
     }
 }

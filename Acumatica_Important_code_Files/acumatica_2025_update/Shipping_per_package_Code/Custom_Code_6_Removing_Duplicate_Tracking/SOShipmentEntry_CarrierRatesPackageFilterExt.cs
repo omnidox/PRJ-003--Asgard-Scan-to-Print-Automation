@@ -11,60 +11,34 @@ namespace PX.Objects.SO
 {
     /// <summary>
     /// ========================================================================
-    /// SOShipmentEntry.CarrierRates Extension - THREE-LAYER DUPLICATE PREVENTION
+    /// SOShipmentEntry.CarrierRates Extension - Per-Package Carrier Label Filter
     /// ========================================================================
     /// 
-    /// PROBLEM:
-    /// Per-package carrier label generation can create already-tracked packages.
-    /// When user clicks Confirm Shipment, Acumatica's native ShipPackages calls 
-    /// FedEx/UPS. If FedEx processes an already-tracked package, a duplicate 
-    /// shipment is created on the carrier side.
+    /// Purpose:
+    /// Override CarrierRates.GetPackages() to filter packages BEFORE confirmation
+    /// validation. This is used in TWO contexts:
     /// 
-    /// EXAMPLE SCENARIO (DANGEROUS):
-    /// 1. User generates label for Package 1 → FedEx tracking #123
-    /// 2. Package 2 has no tracking yet
-    /// 3. User clicks Confirm Shipment
-    /// 4. Native ShipPackages sends BOTH packages to FedEx
-    /// 5. FedEx sees Package 1 (new request) + Package 2 (new request)
-    /// 6. FedEx creates shipment for both → generates new tracking #456 for Package 1
-    /// 7. Package 1 now has BOTH #123 AND #456 on FedEx
-    /// 8. Acumatica silently overwrites #123 with #456 in database
-    /// 9. Original #123 tracking becomes orphaned on FedEx
+    /// CONTEXT 1 - MANUAL PRINT / WMS SCAN:
+    /// When manually generating/printing a carrier label for ONE package:
+    /// - CarrierPackageFilterScope is active
+    /// - Filters packages to ONLY the selected package
+    /// - Only that one package is validated and sent to carrier
+    /// - All other packages are hidden from GetPackages
     /// 
-    /// SOLUTION - THREE-LAYER ARCHITECTURE:
+    /// CONTEXT 2 - CONFIRM SHIPMENT (Legacy, currently unused):
+    /// The ConfirmShipmentCarrierFilterScope filtering logic is present but currently
+    /// NOT USED because the ShipPackages override now uses a safer approach:
+    /// - All packages already tracked → Skip baseMethod, validate packed qty, return early
+    /// - No packages tracked → Allow normal baseMethod (native behavior)
+    /// - Mixed tracked/untracked → Throw PXException BEFORE baseMethod
     /// 
-    /// LAYER 1 (ShipPackages.cs):
-    /// Pre-call hard safety guard. BEFORE calling baseMethod:
-    /// - Check if all packages already tracked → skip carrier call entirely
-    /// - Check if no packages tracked → proceed normally
-    /// - Check if mixed state → proceed with filtering (LAYER 2)
-    /// - If filtering not guaranteed → throw exception
-    /// Result: Already-tracked packages never reach carrier in some scenarios
+    /// Mixed state is NOT filtered via GetPackages - it's blocked entirely at a higher level.
+    /// This is the safest approach: fail fast before contacting FedEx/UPS.
     /// 
-    /// LAYER 2 (This file - GetPackages override):
-    /// Carrier package filtering. INSIDE GetPackages:
-    /// - If ConfirmShipmentCarrierFilterScope is active (Confirm Shipment flow)
-    /// - Filter to only packages that DON'T have tracking yet
-    /// - Return empty list if all packages already tracked
-    /// Result: FedEx only sees untracked packages, preventing duplicates for mixed state
-    /// 
-    /// LAYER 3 (ShipPackages.cs):
-    /// Post-call audit validation. AFTER baseMethod completes:
-    /// - Compare pre-call tracking state with post-call state
-    /// - For any package that had tracking before, verify tracking did NOT change
-    /// - If tracking changed unexpectedly, throw exception (do NOT silently restore)
-    /// Result: Unexpected carrier changes are detected and cause transaction rollback
-    /// 
-    /// ARCHITECTURE GUARANTEES:
-    /// 1. Already-tracked packages cannot reach carrier (LAYER 1 + LAYER 2)
-    /// 2. If filtering fails, exception is thrown before carrier call (LAYER 1)
-    /// 3. If unexpected changes occur, transaction is rolled back (LAYER 3)
-    /// 4. Silent data loss is prevented at all cost
-    /// 5. Correct Shipment can still clear tracking/labels when ShippedViaCarrier=true
-    /// 
-    /// KEY PRINCIPLE:
-    /// Fail fast, fail loud. Do NOT silently restore tracking after the fact.
-    /// The dangerous doorway is the carrier call itself - prevent it before it happens.
+    /// How it works:
+    /// CarrierRates.GetPackages() is called during cs.Ship() within ShipPackages.
+    /// If CarrierPackageFilterScope is active, we filter to the selected package only.
+    /// Otherwise, normal behavior applies (unless explicitly blocked by ShipPackages override).
     /// </summary>
     public class SOShipmentEntry_CarrierRatesPackageFilterExt : PXGraphExtension<SOShipmentEntry.CarrierRates, SOShipmentEntry>
     {
