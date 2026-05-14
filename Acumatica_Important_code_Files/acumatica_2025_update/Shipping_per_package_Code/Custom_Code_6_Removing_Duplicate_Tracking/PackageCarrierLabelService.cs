@@ -45,95 +45,50 @@ namespace PX.Objects.SO
             public string TrackData { get; set; }
         }
 
-          
+        /// <summary>
+        /// DEPRECATED: This method is no longer used.
+        /// 
+        /// REASON: LAYER 1 of the ShipPackages override now prevents already-tracked packages
+        /// from being sent to the carrier in the first place. LAYER 3 audit validation detects
+        /// any unexpected changes, preventing silent data loss.
+        /// 
+        /// Silent restoration of tracking is NOT a safe solution because:
+        /// 1. By the time we restore, the carrier may have already created a duplicate shipment
+        /// 2. Restoration masks the real problem instead of preventing it
+        /// 3. Silent recovery creates audit/compliance issues
+        /// 
+        /// Keep method for backward compatibility but it is never called.
+        /// </summary>
+        [Obsolete("Use LAYER 1 pre-call guard in ShipPackages override instead")]
         public virtual Dictionary<int, PreservedPackageTracking> CaptureTrackingForPackagesWithExistingLabels(string shipmentNbr)
         {
+            PXTrace.WriteWarning(
+                "[CAPTURE-TRACKING] DEPRECATED METHOD CALLED. This method should not be used. " +
+                "LAYER 1 pre-call guard should prevent already-tracked packages from reaching carrier.");
+
             var preserved = new Dictionary<int, PreservedPackageTracking>();
-        
-            if (string.IsNullOrWhiteSpace(shipmentNbr))
-                return preserved;
-
-            // ========================================================================
-            // DIAGNOSTIC TRACE: Log capture attempt and results
-            // ========================================================================
-            PXTrace.WriteInformation("[CAPTURE-TRACKING] Starting capture for shipment {0}", shipmentNbr);
-        
-            foreach (SOPackageDetailEx package in PXSelect<
-                SOPackageDetailEx,
-                Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
-                .Select(_graph, shipmentNbr))
-            {
-                if (package?.LineNbr == null)
-                    continue;
-        
-                FileInfo existingLabel = TryGetExistingCarrierLabel(package);
-                
-                // DIAGNOSTIC: Log skip/capture decision with full details
-                PXTrace.WriteInformation(
-                    "[CAPTURE-TRACKING] Evaluating LineNbr={0}: TrackNumber={1}, HasLabelFile={2}",
-                    package.LineNbr,
-                    package.TrackNumber ?? "(empty)",
-                    existingLabel != null ? "YES" : "NO");
-
-                if (existingLabel == null)
-                {
-                    PXTrace.WriteWarning(
-                        "[CAPTURE-TRACKING] SKIP - LineNbr={0} has no label file (TrackNumber={1})",
-                        package.LineNbr,
-                        package.TrackNumber ?? "(empty)");
-                    continue;
-                }
-        
-                if (string.IsNullOrWhiteSpace(package.TrackNumber))
-                {
-                    PXTrace.WriteWarning(
-                        "[CAPTURE-TRACKING] SKIP - LineNbr={0} has label file but no TrackNumber",
-                        package.LineNbr);
-                    continue;
-                }
-        
-                preserved[package.LineNbr.Value] = new PreservedPackageTracking
-                {
-                    LineNbr = package.LineNbr,
-                    TrackNumber = package.TrackNumber,
-                    TrackUrl = package.TrackUrl,
-                    TrackData = package.TrackData
-                };
-
-                PXTrace.WriteInformation(
-                    "[CAPTURE-TRACKING] ✅ PRESERVED - LineNbr={0}, TrackNumber={1}, TrackUrl={2}, TrackData={3}",
-                    package.LineNbr,
-                    package.TrackNumber ?? "(empty)",
-                    package.TrackUrl ?? "(empty)",
-                    package.TrackData ?? "(empty)");
-            }
-
-            PXTrace.WriteInformation("[CAPTURE-TRACKING] Capture complete: {0} packages preserved out of all packages in shipment", preserved.Count);
             return preserved;
         }
-          
+
+        /// <summary>
+        /// DEPRECATED: This method is no longer used.
+        /// 
+        /// REASON: Silent restoration of tracking is not a safe approach. 
+        /// See CaptureTrackingForPackagesWithExistingLabels for explanation.
+        /// 
+        /// Keep method for backward compatibility but it is never called.
+        /// </summary>
+        [Obsolete("Use LAYER 3 audit validation in ShipPackages override instead")]
         public virtual void RestoreTrackingForPackages(string shipmentNbr, Dictionary<int, PreservedPackageTracking> preserved)
         {
+            PXTrace.WriteWarning(
+                "[RESTORE-TRACKING] DEPRECATED METHOD CALLED. This method should not be used. " +
+                "LAYER 3 audit validation will detect any unexpected changes and throw exceptions.");
+
             if (string.IsNullOrWhiteSpace(shipmentNbr) || preserved == null || preserved.Count == 0)
                 return;
-        
-            foreach (SOPackageDetailEx package in PXSelect<
-                SOPackageDetailEx,
-                Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
-                .Select(_graph, shipmentNbr))
-            {
-                if (package?.LineNbr == null)
-                    continue;
-        
-                if (!preserved.TryGetValue(package.LineNbr.Value, out PreservedPackageTracking snapshot))
-                    continue;
-        
-                package.TrackNumber = snapshot.TrackNumber;
-                package.TrackUrl = snapshot.TrackUrl;
-                package.TrackData = snapshot.TrackData;
-        
-                _graph.Packages.Update(package);
-            }
+
+            // Method is now a no-op - do not perform any restoration
         }
           
         public virtual FileInfo TryGetExistingCarrierLabel(SOPackageDetailEx package)

@@ -300,251 +300,139 @@ namespace PX.Objects.SO
                 return;
             }
 
-            // ========================================================================
-            // DIAGNOSTIC TRACE: PHASE 1 - CONFIRM SHIPMENT BEHAVIOR
-            // ========================================================================
-            PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] ENTERED ShipPackages for shipment {0}", shiporder.ShipmentNbr);
-
-            // Log BEFORE state - all packages before baseMethod
-            PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] ========== BEFORE baseMethod ==========");
-            foreach (SOPackageDetailEx pkg in PXSelect<
-                SOPackageDetailEx,
-                Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
-                .Select(Base, shiporder.ShipmentNbr))
-            {
-                FileInfo lblFile = null;
-                try
-                {
-                    lblFile = new PackageCarrierLabelService(Base).TryGetExistingCarrierLabel(pkg);
-                }
-                catch { }
-
-                PXTrace.WriteInformation(
-                    "[SHIP-PACKAGES-OVERRIDE] BEFORE - LineNbr={0}, TrackNumber={1}, TrackUrl={2}, TrackData={3}, HasLabelFile={4}, Confirmed={5}",
-                    pkg.LineNbr,
-                    pkg.TrackNumber ?? "(empty)",
-                    pkg.TrackUrl ?? "(empty)",
-                    pkg.TrackData ?? "(empty)",
-                    lblFile != null ? "YES" : "NO",
-                    pkg.Confirmed);
-            }
-
-            var svc = new PackageCarrierLabelService(Base);
-
-            // Capture tracking values for packages that already have labels
-            var preserved = svc.CaptureTrackingForPackagesWithExistingLabels(shiporder.ShipmentNbr);
-
-            PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] Captured {0} packages for preservation", preserved.Count);
-            foreach (var kvp in preserved)
-            {
-                PXTrace.WriteInformation(
-                    "[SHIP-PACKAGES-OVERRIDE] Preserved - LineNbr={0}, TrackNumber={1}, TrackUrl={2}, TrackData={3}",
-                    kvp.Key,
-                    kvp.Value.TrackNumber ?? "(empty)",
-                    kvp.Value.TrackUrl ?? "(empty)",
-                    kvp.Value.TrackData ?? "(empty)");
-            }
-
-            // CRITICAL: Log filter scope state before calling baseMethod
             PXTrace.WriteInformation(
-                "[SHIP-PACKAGES-OVERRIDE] CarrierPackageFilterScope.IsActive={0} (about to call baseMethod)",
-                CarrierPackageFilterScope.IsActive);
-
-            // ========================================================================
-            // PREVENTIVE FIX: Activate ConfirmShipmentCarrierFilterScope
-            // This signals to GetPackages to filter out already-tracked packages
-            // ========================================================================
-            using (ConfirmShipmentCarrierFilterScope.Activate(shiporder.ShipmentNbr))
-            {
-                PXTrace.WriteInformation(
-                    "[SHIP-PACKAGES-OVERRIDE] ConfirmShipmentCarrierFilterScope activated");
-
-                // Let native Acumatica shipping run (with filter scope active)
-                baseMethod(shiporder);
-
-                PXTrace.WriteInformation(
-                    "[SHIP-PACKAGES-OVERRIDE] ConfirmShipmentCarrierFilterScope exiting");
-            }
-
-            // ========================================================================
-            // DIAGNOSTIC TRACE: AFTER baseMethod - Log state after native processing
-            // ========================================================================
-            PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] ========== AFTER baseMethod ==========");
-            foreach (SOPackageDetailEx pkg in PXSelect<
-                SOPackageDetailEx,
-                Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
-                .Select(Base, shiporder.ShipmentNbr))
-            {
-                FileInfo lblFile = null;
-                try
-                {
-                    lblFile = new PackageCarrierLabelService(Base).TryGetExistingCarrierLabel(pkg);
-                }
-                catch { }
-
-                PXTrace.WriteInformation(
-                    "[SHIP-PACKAGES-OVERRIDE] AFTER - LineNbr={0}, TrackNumber={1}, TrackUrl={2}, TrackData={3}, HasLabelFile={4}, Confirmed={5}",
-                    pkg.LineNbr,
-                    pkg.TrackNumber ?? "(empty)",
-                    pkg.TrackUrl ?? "(empty)",
-                    pkg.TrackData ?? "(empty)",
-                    lblFile != null ? "YES" : "NO",
-                    pkg.Confirmed);
-            }
-
-            // Restore tracking values only for packages we want preserved
-            if (preserved.Count > 0)
-            {
-                PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] Attempting restore for {0} packages", preserved.Count);
-
-                Base.Document.Current = Base.Document.Search<SOShipment.shipmentNbr>(shiporder.ShipmentNbr);
-
-                svc.RestoreTrackingForPackages(shiporder.ShipmentNbr, preserved);
-
-                // ========================================================================
-                // CRITICAL: Log AFTER restore to verify restore actually worked
-                // ========================================================================
-                PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] ========== AFTER RestoreTracking ==========");
-                foreach (SOPackageDetailEx pkg in PXSelect<
-                    SOPackageDetailEx,
-                    Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
-                    .Select(Base, shiporder.ShipmentNbr))
-                {
-                    PXTrace.WriteInformation(
-                        "[SHIP-PACKAGES-OVERRIDE] RESTORED - LineNbr={0}, TrackNumber={1}, TrackUrl={2}, TrackData={3}",
-                        pkg.LineNbr,
-                        pkg.TrackNumber ?? "(empty)",
-                        pkg.TrackUrl ?? "(empty)",
-                        pkg.TrackData ?? "(empty)");
-                }
-            }
-            else
-            {
-                PXTrace.WriteWarning("[SHIP-PACKAGES-OVERRIDE] No packages were captured for preservation - tracking may be overwritten");
-            }
-
-            // ========================================================================
-            // NEW FIX: Restore ShippedViaCarrier flag when all packages already tracked
-            // This must be called AFTER restore so we inspect the correct package state
-            // ========================================================================
-            bool headerChanged = EnsureShippedViaCarrierWhenAllPackagesAlreadyTracked(shiporder);
-
-            // ========================================================================
-            // CRITICAL: Log Base.IsDirty state and save if needed
-            // ========================================================================
-            PXTrace.WriteWarning("[SHIP-PACKAGES-OVERRIDE] Base.IsDirty BEFORE Save.Press = {0}", Base.IsDirty);
-
-            if (Base.IsDirty || headerChanged)
-            {
-                PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] Graph is dirty or header changed, pressing Save");
-                Base.Save.Press();
-                PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] Save.Press() called");
-            }
-            else
-            {
-                PXTrace.WriteWarning("[SHIP-PACKAGES-OVERRIDE] ⚠️ Graph is NOT dirty and header not changed - nothing to save");
-            }
-
-            // Log final state AFTER Save attempt
-            PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] ========== AFTER Save.Press ==========");
-            foreach (SOPackageDetailEx pkg in PXSelect<
-                SOPackageDetailEx,
-                Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
-                .Select(Base, shiporder.ShipmentNbr))
-            {
-                PXTrace.WriteInformation(
-                    "[SHIP-PACKAGES-OVERRIDE] FINAL - LineNbr={0}, TrackNumber={1}",
-                    pkg.LineNbr,
-                    pkg.TrackNumber ?? "(empty)");
-            }
-
-            PXTrace.WriteInformation("[SHIP-PACKAGES-OVERRIDE] EXITING ShipPackages override");
-        }
-
-        /// <summary>
-        /// Ensure ShippedViaCarrier flag is set when all packages already have tracking numbers.
-        /// Returns true if the flag was changed, false otherwise.
-        /// 
-        /// Purpose:
-        /// When ConfirmShipmentCarrierFilterScope filters out already-tracked packages,
-        /// Acumatica's native ShipPackages does not call cs.Ship(cr), so it may not set
-        /// the ShippedViaCarrier flag. However, Correct Shipment depends on this flag to
-        /// properly clear tracking numbers and delete label files.
-        /// 
-        /// This helper restores the native-equivalent state without reintroducing FedEx
-        /// regeneration.
-        /// 
-        /// Only called during Confirm Shipment (when ConfirmShipmentCarrierFilterScope was active).
-        /// Does NOT affect manual print or WMS scan print.
-        /// </summary>
-        private bool EnsureShippedViaCarrierWhenAllPackagesAlreadyTracked(SOShipment shiporder)
-        {
-            if (shiporder == null || string.IsNullOrWhiteSpace(shiporder.ShipmentNbr))
-                return false;
-
-            PXTrace.WriteInformation(
-                "[CONFIRM-CARRIER-FIX] Checking ShippedViaCarrier state after confirm carrier filtering. Shipment={0}",
+                "[SHIP-PACKAGES-SAFE-GUARD] Entered ShipPackages for shipment {0}",
                 shiporder.ShipmentNbr);
 
-            // Query all packages for this shipment
-            List<SOPackageDetailEx> packages = PXSelect<
+            List<SOPackageDetailEx> allPackages = PXSelect<
                 SOPackageDetailEx,
                 Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
                 .Select(Base, shiporder.ShipmentNbr)
                 .RowCast<SOPackageDetailEx>()
                 .ToList();
 
-            int packageCount = packages.Count;
+            int totalPackages = allPackages.Count;
+            int packagesWithTracking = allPackages.Count(p => !string.IsNullOrWhiteSpace(p.TrackNumber));
+            int packagesWithoutTracking = totalPackages - packagesWithTracking;
+
+            PXTrace.WriteInformation(
+                "[SHIP-PACKAGES-SAFE-GUARD] Package analysis: Total={0}, WithTracking={1}, WithoutTracking={2}",
+                totalPackages,
+                packagesWithTracking,
+                packagesWithoutTracking);
+
+            foreach (var pkg in allPackages)
+            {
+                PXTrace.WriteInformation(
+                    "[SHIP-PACKAGES-SAFE-GUARD] Package LineNbr={0}, TrackNumber={1}",
+                    pkg.LineNbr,
+                    string.IsNullOrWhiteSpace(pkg.TrackNumber) ? "(empty)" : pkg.TrackNumber);
+            }
+
+            // CASE 1: No package rows. Let native behavior decide.
+            if (totalPackages == 0)
+            {
+                PXTrace.WriteInformation(
+                    "[SHIP-PACKAGES-SAFE-GUARD] No package rows found. Calling base ShipPackages.");
+                baseMethod(shiporder);
+                return;
+            }
+
+            // CASE 2: All packages already tracked.
+            // Do NOT call baseMethod, because baseMethod may contact the carrier again.
+            if (packagesWithTracking == totalPackages)
+            {
+                PXTrace.WriteWarning(
+                    "[SHIP-PACKAGES-SAFE-GUARD] All packages already have tracking. Skipping native carrier ShipPackages to prevent duplicate carrier shipment generation.");
+
+                EnsureShippedViaCarrierWhenAllPackagesTracked(shiporder);
+
+                PXTrace.WriteInformation(
+                    "[SHIP-PACKAGES-SAFE-GUARD] Exiting ShipPackages without calling baseMethod.");
+                return;
+            }
+
+            // CASE 3: No packages tracked.
+            // Safe to allow native carrier generation.
+            if (packagesWithTracking == 0)
+            {
+                PXTrace.WriteInformation(
+                    "[SHIP-PACKAGES-SAFE-GUARD] No packages have tracking. Calling native ShipPackages normally.");
+
+                baseMethod(shiporder);
+
+                PXTrace.WriteInformation(
+                    "[SHIP-PACKAGES-SAFE-GUARD] Native ShipPackages completed.");
+                return;
+            }
+
+            // CASE 4: Mixed state.
+            // This is intentionally blocked for now.
+            PXTrace.WriteError(
+                "[SHIP-PACKAGES-SAFE-GUARD] ❌ MIXED STATE DETECTED - {0} packages have tracking, {1} packages need tracking. Throwing exception.",
+                packagesWithTracking,
+                packagesWithoutTracking);
+
+            throw new PXException(
+                "Confirm Shipment was stopped because this shipment has a mix of tracked and untracked packages. " +
+                "Some packages already have carrier tracking, while others do not. " +
+                "To prevent duplicate FedEx/UPS shipment generation, native carrier processing will not run in this mixed state. " +
+                "Please generate labels for the remaining untracked packages individually first, then confirm the shipment again.");
+        }
+
+        /// <summary>
+        /// Ensure ShippedViaCarrier flag is set when all packages have tracking.
+        /// This is critical for Correct Shipment to work properly.
+        /// </summary>
+        private void EnsureShippedViaCarrierWhenAllPackagesTracked(SOShipment shipment)
+        {
+            if (shipment == null)
+                return;
+
+            List<SOPackageDetailEx> packages = PXSelect<
+                SOPackageDetailEx,
+                Where<SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>>>
+                .Select(Base, shipment.ShipmentNbr)
+                .RowCast<SOPackageDetailEx>()
+                .ToList();
+
+            int totalPackages = packages.Count;
             int packagesWithTracking = packages.Count(p => !string.IsNullOrWhiteSpace(p.TrackNumber));
 
             PXTrace.WriteInformation(
-                "[CONFIRM-CARRIER-FIX] Package count={0}, PackagesWithTracking={1}",
-                packageCount,
+                "[ENSURE-SHIPPED-VIA-CARRIER] Checking ShippedViaCarrier state. Total={0}, Tracked={1}",
+                totalPackages,
                 packagesWithTracking);
 
-            // Check if all packages have tracking
-            bool allHaveTracking = packageCount > 0 && packagesWithTracking == packageCount;
-
-            if (!allHaveTracking)
+            if (totalPackages == 0 || packagesWithTracking != totalPackages)
             {
-                PXTrace.WriteInformation(
-                    "[CONFIRM-CARRIER-FIX] Not setting ShippedViaCarrier. Reason=Not all packages have tracking.");
-                return false;
+                PXTrace.WriteInformation("[ENSURE-SHIPPED-VIA-CARRIER] Not setting ShippedViaCarrier - not all packages tracked");
+                return;
             }
 
-            // Re-query current shipment state
-            SOShipment shipment = Base.Document.Search<SOShipment.shipmentNbr>(shiporder.ShipmentNbr);
+            // Re-query shipment to get current state
+            SOShipment current = Base.Document.Search<SOShipment.shipmentNbr>(shipment.ShipmentNbr);
 
-            if (shipment == null)
+            if (current == null)
             {
-                PXTrace.WriteWarning(
-                    "[CONFIRM-CARRIER-FIX] Shipment not found after search. Cannot set ShippedViaCarrier.");
-                return false;
+                PXTrace.WriteWarning("[ENSURE-SHIPPED-VIA-CARRIER] Shipment not found");
+                return;
+            }
+
+            if (current.ShippedViaCarrier == true)
+            {
+                PXTrace.WriteInformation("[ENSURE-SHIPPED-VIA-CARRIER] ShippedViaCarrier already true, no change needed");
+                return;
             }
 
             PXTrace.WriteInformation(
-                "[CONFIRM-CARRIER-FIX] Shipment ShippedViaCarrier before={0}",
-                shipment.ShippedViaCarrier);
+                "[ENSURE-SHIPPED-VIA-CARRIER] All packages tracked. Setting ShippedViaCarrier=true");
 
-            // Only set if not already true
-            if (shipment.ShippedViaCarrier == true)
-            {
-                PXTrace.WriteInformation(
-                    "[CONFIRM-CARRIER-FIX] Not setting ShippedViaCarrier. Reason=Already true.");
-                return false;
-            }
+            current.ShippedViaCarrier = true;
+            Base.Document.Update(current);
+            Base.Save.Press();
 
-            // Set ShippedViaCarrier = true
-            PXTrace.WriteInformation(
-                "[CONFIRM-CARRIER-FIX] All packages already tracked. Setting ShippedViaCarrier=true so Correct Shipment can clear packages later.");
-
-            shipment.ShippedViaCarrier = true;
-            Base.Document.Update(shipment);
-
-            PXTrace.WriteInformation(
-                "[CONFIRM-CARRIER-FIX] Shipment ShippedViaCarrier after=True");
-
-            return true;  // Flag was changed
+            PXTrace.WriteInformation("[ENSURE-SHIPPED-VIA-CARRIER] ✅ ShippedViaCarrier set and saved");
         }
     }
 }

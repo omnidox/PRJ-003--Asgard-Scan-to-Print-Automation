@@ -11,31 +11,60 @@ namespace PX.Objects.SO
 {
     /// <summary>
     /// ========================================================================
-    /// SOShipmentEntry.CarrierRates Extension - Per-Package Carrier Label Filter
+    /// SOShipmentEntry.CarrierRates Extension - THREE-LAYER DUPLICATE PREVENTION
     /// ========================================================================
     /// 
-    /// Purpose:
-    /// Override CarrierRates.GetPackages() to filter packages BEFORE confirmation
-    /// validation. This is the critical path that throws:
-    ///   "Confirmation for each and every Package is required"
+    /// PROBLEM:
+    /// Per-package carrier label generation can create already-tracked packages.
+    /// When user clicks Confirm Shipment, Acumatica's native ShipPackages calls 
+    /// FedEx/UPS. If FedEx processes an already-tracked package, a duplicate 
+    /// shipment is created on the carrier side.
     /// 
-    /// When CarrierPackageFilterScope is active, we:
-    /// 1. Query all packages for the shipment
-    /// 2. Filter to only the selected package (BEFORE validation)
-    /// 3. Validate and build carrier boxes for only that package
-    /// 4. Return the filtered list so BuildRequest sees only one package
+    /// EXAMPLE SCENARIO (DANGEROUS):
+    /// 1. User generates label for Package 1 → FedEx tracking #123
+    /// 2. Package 2 has no tracking yet
+    /// 3. User clicks Confirm Shipment
+    /// 4. Native ShipPackages sends BOTH packages to FedEx
+    /// 5. FedEx sees Package 1 (new request) + Package 2 (new request)
+    /// 6. FedEx creates shipment for both → generates new tracking #456 for Package 1
+    /// 7. Package 1 now has BOTH #123 AND #456 on FedEx
+    /// 8. Acumatica silently overwrites #123 with #456 in database
+    /// 9. Original #123 tracking becomes orphaned on FedEx
     /// 
-    /// Result: Only the selected package is validated/printed, not all packages.
+    /// SOLUTION - THREE-LAYER ARCHITECTURE:
     /// 
-    /// Architecture:
-    /// This extension sits between PackageCarrierLabelService.GenerateCarrierLabelForPackage()
-    /// and the confirmation validation logic inside GetPackages().
+    /// LAYER 1 (ShipPackages.cs):
+    /// Pre-call hard safety guard. BEFORE calling baseMethod:
+    /// - Check if all packages already tracked → skip carrier call entirely
+    /// - Check if no packages tracked → proceed normally
+    /// - Check if mixed state → proceed with filtering (LAYER 2)
+    /// - If filtering not guaranteed → throw exception
+    /// Result: Already-tracked packages never reach carrier in some scenarios
     /// 
-    /// Hook Point:
-    /// CarrierRates.GetPackages(SOShipment, Carrier, CarrierPlugin)
+    /// LAYER 2 (This file - GetPackages override):
+    /// Carrier package filtering. INSIDE GetPackages:
+    /// - If ConfirmShipmentCarrierFilterScope is active (Confirm Shipment flow)
+    /// - Filter to only packages that DON'T have tracking yet
+    /// - Return empty list if all packages already tracked
+    /// Result: FedEx only sees untracked packages, preventing duplicates for mixed state
     /// 
-    /// Design Pattern:
-    /// PXGraphExtension on nested CarrierRates class within SOShipmentEntry
+    /// LAYER 3 (ShipPackages.cs):
+    /// Post-call audit validation. AFTER baseMethod completes:
+    /// - Compare pre-call tracking state with post-call state
+    /// - For any package that had tracking before, verify tracking did NOT change
+    /// - If tracking changed unexpectedly, throw exception (do NOT silently restore)
+    /// Result: Unexpected carrier changes are detected and cause transaction rollback
+    /// 
+    /// ARCHITECTURE GUARANTEES:
+    /// 1. Already-tracked packages cannot reach carrier (LAYER 1 + LAYER 2)
+    /// 2. If filtering fails, exception is thrown before carrier call (LAYER 1)
+    /// 3. If unexpected changes occur, transaction is rolled back (LAYER 3)
+    /// 4. Silent data loss is prevented at all cost
+    /// 5. Correct Shipment can still clear tracking/labels when ShippedViaCarrier=true
+    /// 
+    /// KEY PRINCIPLE:
+    /// Fail fast, fail loud. Do NOT silently restore tracking after the fact.
+    /// The dangerous doorway is the carrier call itself - prevent it before it happens.
     /// </summary>
     public class SOShipmentEntry_CarrierRatesPackageFilterExt : PXGraphExtension<SOShipmentEntry.CarrierRates, SOShipmentEntry>
     {
@@ -243,17 +272,50 @@ namespace PX.Objects.SO
                     }
 
                     // ========================================================================
-                    // KEY DECISION: If all packages already have tracking, return zero items
+                    // KEY DECISION: If all packages already have tracking, something is wrong
+                    // LAYER 1 should have prevented the carrier call entirely
+                    // If we reach here, throw exception instead of silently returning empty list
                     // ========================================================================
                     if (packagesNeedingTracking.Count == 0)
                     {
-                        PXTrace.WriteInformation(
-                            "[CONFIRM-CARRIER-FILTER] All packages already have tracking. Returning 0 CarrierBox items to prevent FedEx regeneration.");
-                        return new List<CarrierBox>(); // Return empty list - FedEx will not be called
+                        PXTrace.WriteError(
+                            "[CONFIRM-CARRIER-FILTER] ❌ CRITICAL: All packages already have tracking, but baseMethod was called anyway.");
+                        PXTrace.WriteError(
+                            "[CONFIRM-CARRIER-FILTER] This indicates LAYER 1 pre-call guard failed to prevent carrier call.");
+                        
+                        throw new PXException(
+                            "Confirm Shipment flow detected that all packages already have carrier tracking, " +
+                            "but the carrier generation was called anyway. This indicates a critical safety check failure. " +
+                            "LAYER 1 pre-call guard should have prevented this. Please contact system administrator.");
                     }
 
                     // ========================================================================
-                    // Otherwise, process only packages that need tracking
+                    // HARD GUARD #5: Before building CarrierBox items, verify no already-tracked
+                    // packages will be included in the result
+                    // ========================================================================
+                    var alreadyTrackedInResult = packagesNeedingTracking
+                        .Where(p => !string.IsNullOrWhiteSpace(p.TrackNumber))
+                        .ToList();
+
+                    if (alreadyTrackedInResult.Count > 0)
+                    {
+                        PXTrace.WriteError(
+                            "[CONFIRM-CARRIER-FILTER] ❌ CRITICAL GUARD VIOLATION: Already-tracked packages are about to be sent to carrier.");
+                        foreach (var pkg in alreadyTrackedInResult)
+                        {
+                            PXTrace.WriteError(
+                                "[CONFIRM-CARRIER-FILTER] Package LineNbr={0}, TrackNumber={1} would be included",
+                                pkg.LineNbr,
+                                pkg.TrackNumber);
+                        }
+
+                        throw new PXException(
+                            $"CRITICAL GUARD FAILED: {alreadyTrackedInResult.Count} already-tracked package(s) would be sent to carrier. " +
+                            "This must not happen. Filtering mechanism has broken. Confirm Shipment aborted.");
+                    }
+
+                    // ========================================================================
+                    // Safe to proceed: all packages in result are untracked
                     // ========================================================================
                     var filteredResult = ValidateAndBuildCarrierPackages(packagesNeedingTracking, carrier, plugin);
 
