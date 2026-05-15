@@ -5,6 +5,7 @@ using System.Linq;
 using PX.Data;
 using PX.Objects.SO;
 using PX.Objects.CS;
+using PX.Objects.IN;
 using PX.SM;
 using PX.Objects.CR;
 
