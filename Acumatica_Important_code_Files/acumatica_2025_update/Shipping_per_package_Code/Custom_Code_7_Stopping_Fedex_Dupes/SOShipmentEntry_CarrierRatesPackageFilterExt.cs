@@ -6,6 +6,7 @@ using PX.Data;
 using PX.Objects.SO;
 using PX.Objects.CS;
 using PX.CarrierService;
+using PX.SM;
 
 namespace PX.Objects.SO
 {
@@ -209,28 +210,40 @@ namespace PX.Objects.SO
 
                     // ========================================================================
                     // PREVENTIVE FIX: Filter to packages that DON'T have tracking yet
+                    // CRITICAL: Evaluate IsAlreadyCarrierLabeled ONCE per package to avoid
+                    // side effects (TrackNumber recovery) being executed twice
                     // ========================================================================
-                    List<SOPackageDetailEx> alreadyTrackedPackages = allPackages
-                        .Where(p => IsAlreadyCarrierLabeled(p))
+                    var packageStatuses = allPackages
+                        .Select(p => new
+                        {
+                            Package = p,
+                            AlreadyLabeled = IsAlreadyCarrierLabeled(p)
+                        })
                         .ToList();
 
-                    List<SOPackageDetailEx> packagesNeedingTracking = allPackages
-                        .Where(p => !IsAlreadyCarrierLabeled(p))
+                    List<SOPackageDetailEx> alreadyLabeledPackages = packageStatuses
+                        .Where(x => x.AlreadyLabeled)
+                        .Select(x => x.Package)
+                        .ToList();
+
+                    List<SOPackageDetailEx> packagesNeedingTracking = packageStatuses
+                        .Where(x => !x.AlreadyLabeled)
+                        .Select(x => x.Package)
                         .ToList();
 
                     PXTrace.WriteInformation(
-                        "[CONFIRM-CARRIER-FILTER] Already tracked package count: {0}",
-                        alreadyTrackedPackages.Count);
+                        "[CONFIRM-CARRIER-FILTER] Already labeled package count: {0}",
+                        alreadyLabeledPackages.Count);
 
                     PXTrace.WriteInformation(
                         "[CONFIRM-CARRIER-FILTER] Missing tracking package count: {0}",
                         packagesNeedingTracking.Count);
 
                     // Log each package's action
-                    foreach (var pkg in alreadyTrackedPackages)
+                    foreach (var pkg in alreadyLabeledPackages)
                     {
                         PXTrace.WriteInformation(
-                            "[CONFIRM-CARRIER-FILTER] LineNbr={0}, TrackNumber={1}, Action=SKIP_ALREADY_TRACKED",
+                            "[CONFIRM-CARRIER-FILTER] LineNbr={0}, TrackNumber={1}, Action=SKIP_ALREADY_LABELED",
                             pkg.LineNbr,
                             pkg.TrackNumber ?? "(empty)");
                     }
@@ -248,7 +261,7 @@ namespace PX.Objects.SO
                     if (packagesNeedingTracking.Count == 0)
                     {
                         PXTrace.WriteInformation(
-                            "[CONFIRM-CARRIER-FILTER] All packages already have tracking. Returning 0 CarrierBox items to prevent FedEx regeneration.");
+                            "[CONFIRM-CARRIER-FILTER] All packages are already carrier-labeled. Returning 0 CarrierBox items to prevent FedEx regeneration.");
                         return new List<CarrierBox>(); // Return empty list - FedEx will not be called
                     }
 
@@ -289,11 +302,218 @@ namespace PX.Objects.SO
 
         /// <summary>
         /// Helper: Determine if a package already has carrier tracking.
-        /// Checks TrackNumber (primary indicator of carrier processing).
+        /// 
+        /// Returns true if EITHER:
+        /// 1. SOPackageDetailEx.TrackNumber is populated (primary indicator)
+        /// 2. An existing carrier label file is found attached to the package
+        /// 
+        /// If a label file exists but TrackNumber is blank, attempts to recover
+        /// the tracking number from the label filename and populate package.TrackNumber.
+        /// 
+        /// Filename format: "Label #TRACKINGNUMBER.ext"
+        /// Example: "Label #123456789012.zpl" → recovered TrackNumber = "123456789012"
         /// </summary>
         private bool IsAlreadyCarrierLabeled(SOPackageDetailEx package)
         {
-            return !string.IsNullOrWhiteSpace(package.TrackNumber);
+            if (package == null)
+                return false;
+
+            // ====================================================================
+            // CASE 1: TrackNumber already exists - PRIMARY INDICATOR
+            // ====================================================================
+            if (!string.IsNullOrWhiteSpace(package.TrackNumber))
+            {
+                PXTrace.WriteInformation(
+                    "[ALREADY-LABELED] LineNbr={0}: Package skipped because TrackNumber already exists: {1}",
+                    package.LineNbr,
+                    package.TrackNumber);
+                return true;
+            }
+
+            // ====================================================================
+            // CASE 2: Check for existing carrier label file attached to package
+            // ====================================================================
+            PX.SM.FileInfo existingLabel = TryGetExistingCarrierLabel(package);
+
+            if (existingLabel != null)
+            {
+                PXTrace.WriteInformation(
+                    "[ALREADY-LABELED] LineNbr={0}: Found existing label file: {1}",
+                    package.LineNbr,
+                    existingLabel.Name);
+
+                // Attempt to recover tracking number from filename
+                string recoveredTrackNumber = TryRecoverTrackingNumberFromLabelFilename(existingLabel.Name);
+
+                if (!string.IsNullOrWhiteSpace(recoveredTrackNumber))
+                {
+                    // Set the recovered tracking number on the package
+                    package.TrackNumber = recoveredTrackNumber;
+                    
+                    // Update the cache so the value is available throughout this graph operation.
+                    // NOTE: Final persistence is handled by the parent Confirm Shipment flow
+                    // via native Acumatica save operations. This Update() marks it dirty in the
+                    // cache so it will be included when the shipment is saved. Do NOT call
+                    // PressSave() here - that happens in the outer flow.
+                    Base.Packages.Update(package);
+
+                    PXTrace.WriteInformation(
+                        "[ALREADY-LABELED] LineNbr={0}: TrackNumber recovered from filename and populated: {1}",
+                        package.LineNbr,
+                        recoveredTrackNumber);
+
+                    PXTrace.WriteInformation(
+                        "[ALREADY-LABELED] LineNbr={0}: Package cache updated with recovered TrackNumber",
+                        package.LineNbr);
+                }
+                else
+                {
+                    // File exists but tracking number could not be recovered
+                    PXTrace.WriteWarning(
+                        "[ALREADY-LABELED] LineNbr={0}: Label file exists but TrackNumber could not be recovered from filename: {1}",
+                        package.LineNbr,
+                        existingLabel.Name);
+                }
+
+                // Either way, the package is already labeled - do not send to FedEx again
+                PXTrace.WriteInformation(
+                    "[ALREADY-LABELED] LineNbr={0}: Package skipped because label file already exists. Avoiding duplicate FedEx generation.",
+                    package.LineNbr);
+                return true;
+            }
+
+            // ====================================================================
+            // CASE 3: No TrackNumber and no existing label file
+            // ====================================================================
+            PXTrace.WriteInformation(
+                "[ALREADY-LABELED] LineNbr={0}: Package needs carrier generation (no TrackNumber, no label file)",
+                package.LineNbr);
+            return false;
+        }
+
+        /// <summary>
+        /// Extract tracking number from carrier label filename.
+        /// 
+        /// Expected format: "Label #TRACKINGNUMBER.ext"
+        /// Examples:
+        ///   "Label #123456789012.zpl" → "123456789012"
+        ///   "Label #FDX98765.zplii" → "FDX98765"
+        ///   "Label #ABC.pdf" → "ABC"
+        /// 
+        /// Returns null or empty string if format does not match.
+        /// This is a best-effort recovery - if it fails, the package is still
+        /// treated as already-labeled to prevent duplicate FedEx generation.
+        /// </summary>
+        private string TryRecoverTrackingNumberFromLabelFilename(string filename)
+        {
+            if (string.IsNullOrWhiteSpace(filename))
+                return null;
+
+            try
+            {
+                // Remove directory path if present (just in case)
+                int lastSlash = filename.LastIndexOf('\\');
+                if (lastSlash >= 0)
+                    filename = filename.Substring(lastSlash + 1);
+
+                lastSlash = filename.LastIndexOf('/');
+                if (lastSlash >= 0)
+                    filename = filename.Substring(lastSlash + 1);
+
+                // Expected format: "Label #TRACKINGNUMBER.ext"
+                // Find "Label #" prefix
+                string prefix = "Label #";
+                if (!filename.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    PXTrace.WriteWarning(
+                        "[TRACK-RECOVERY] Filename does not match expected 'Label #' format: {0}",
+                        filename);
+                    return null;
+                }
+
+                // Extract part after "Label #"
+                string afterPrefix = filename.Substring(prefix.Length);
+
+                // Find last dot (file extension)
+                int lastDot = afterPrefix.LastIndexOf('.');
+                if (lastDot < 0)
+                {
+                    // No extension found - use entire string
+                    PXTrace.WriteWarning(
+                        "[TRACK-RECOVERY] No file extension found in filename: {0}",
+                        filename);
+                    return afterPrefix;
+                }
+
+                // Extract tracking number (everything between "Label #" and extension)
+                string trackingNumber = afterPrefix.Substring(0, lastDot).Trim();
+
+                if (string.IsNullOrWhiteSpace(trackingNumber))
+                {
+                    PXTrace.WriteWarning(
+                        "[TRACK-RECOVERY] Extracted tracking number is empty from filename: {0}",
+                        filename);
+                    return null;
+                }
+
+                PXTrace.WriteInformation(
+                    "[TRACK-RECOVERY] Successfully recovered tracking number from filename '{0}': {1}",
+                    filename,
+                    trackingNumber);
+
+                return trackingNumber;
+            }
+            catch (Exception ex)
+            {
+                PXTrace.WriteError(
+                    "[TRACK-RECOVERY] Exception while parsing label filename '{0}': {1}",
+                    filename,
+                    ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Get existing carrier label file for a package.
+        /// Reimplemented here to avoid dependency on PackageCarrierLabelService
+        /// and to keep logic scoped within the filter.
+        /// 
+        /// Only returns files that:
+        /// 1. Start with "Label #" (case-insensitive) - our standard naming format
+        /// 2. Have recognized carrier label extension: .zpl, .zplii, .epl, .pdf
+        /// 
+        /// This prevents random attached PDFs from causing packages to be skipped.
+        /// Only files matching our generated label format are considered carrier labels.
+        /// </summary>
+        private PX.SM.FileInfo TryGetExistingCarrierLabel(SOPackageDetailEx package)
+        {
+            if (package == null)
+                return null;
+
+            try
+            {
+                Guid[] fileNotes = PXNoteAttribute.GetFileNotes(Base.Packages.Cache, package);
+                if (fileNotes == null || fileNotes.Length == 0)
+                    return null;
+
+                UploadFileMaintenance upload = PXGraph.CreateInstance<UploadFileMaintenance>();
+                string[] allowed = { ".zpl", ".zplii", ".epl", ".pdf" };
+
+                return fileNotes
+                    .Select(id => upload.GetFile(id))
+                    .Where(f => f != null && !string.IsNullOrEmpty(f.Name))
+                    .FirstOrDefault(f =>
+                        f.Name.StartsWith("Label #", StringComparison.OrdinalIgnoreCase)
+                        && allowed.Any(ext => f.Name.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
+            }
+            catch (Exception ex)
+            {
+                PXTrace.WriteWarning(
+                    "[GET-EXISTING-LABEL] Exception retrieving label file for LineNbr={0}: {1}",
+                    package.LineNbr,
+                    ex.Message);
+                return null;
+            }
         }
 
         /// <summary>
