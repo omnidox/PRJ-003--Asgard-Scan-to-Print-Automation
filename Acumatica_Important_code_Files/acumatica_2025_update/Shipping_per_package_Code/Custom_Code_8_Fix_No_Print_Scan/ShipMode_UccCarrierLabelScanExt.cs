@@ -351,10 +351,13 @@ namespace PX.Objects.SO.WMS
 
                             PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] ✅ Label generated: {0}", generatedFile.Name);
 
-                            // Output the generated file
-                            OutputSingleGeneratedLabelFile(generatedFile);
+                            // Send label to DeviceHub printer synchronously.
+                            // We are already inside PXLongOperation.StartOperation (background thread,
+                            // no ASP.NET sync context), so sync-over-async is safe here.
+                            // If no printer is configured, PrintLabelFileToDeviceHubNow throws PXException.
+                            service.PrintLabelFileToDeviceHubNow(generatedFile);
 
-                            PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] ✅ Label file output completed");
+                            PXTrace.WriteInformation("[SHIP-MODE-UCC-LONGOP] ✅ Label sent to DeviceHub printer successfully.");
                         }
                         catch (PXException pxEx)
                         {
@@ -403,9 +406,14 @@ namespace PX.Objects.SO.WMS
         }
 
         /// <summary>
-        /// Output the generated label file to user.
-        /// Currently uses PXRedirectToFileException for browser download.
-        /// Future: Replace with DeviceHub or print-job logic.
+        /// Fallback/debug method: triggers a browser download of the label file
+        /// via PXRedirectToFileException.
+        ///
+        /// NOT used in the main scan path — the scan path calls
+        /// service.PrintLabelFileToDeviceHubNow() instead.
+        ///
+        /// Retained here for diagnostic use only. A redirect inside a WMS
+        /// PXLongOperation is unreliable and should not be the production output path.
         /// </summary>
         private static void OutputSingleGeneratedLabelFile(FileInfo fileInfo)
         {

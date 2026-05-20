@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading;
 using PX.Data;
 using PX.Objects.SO;
+using PX.Objects.CR;
 using PX.SM;
 using PX.CarrierService;
 using PX.Objects.CS;
@@ -271,6 +272,145 @@ namespace PX.Objects.SO
                 throw new PXException("No label file was provided for printing.");
 
             throw new PXRedirectToFileException(fileInfo, true);
+        }
+
+        /// <summary>
+        /// Resolve the DeviceHub printer for carrier label printing.
+        ///
+        /// Uses Acumatica's NotificationUtility to look up the printer configured
+        /// for the PrintLabels report on the current branch.
+        ///
+        /// Returns null if no printer is configured or resolution fails.
+        /// </summary>
+        public virtual Guid? ResolveDeviceHubPrinter()
+        {
+            try
+            {
+                var notificationUtility = new NotificationUtility(_graph);
+                Guid? printerID = notificationUtility.SearchPrinter(
+                    SONotificationSource.Customer,
+                    SOReports.PrintLabels,
+                    _graph.Accessinfo.BranchID);
+
+                if (printerID.HasValue && printerID.Value != Guid.Empty)
+                {
+                    PXTrace.WriteInformation(
+                        "[PRINT-RESOLVE] Printer resolved. PrinterID={0}",
+                        printerID.Value);
+                    return printerID;
+                }
+
+                PXTrace.WriteWarning("[PRINT-RESOLVE] No printer resolved for PrintLabels");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                PXTrace.WriteError("[PRINT-RESOLVE] Exception resolving printer: {0}", ex);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Queue a carrier label file to the DeviceHub printer asynchronously.
+        /// Intended for the BUTTON PATH (UI context, not already inside a long operation).
+        ///
+        /// Uses LongOperationManager.StartAsyncOperation so the print job runs
+        /// in a proper Acumatica async context with UI progress feedback.
+        ///
+        /// If no printer is configured:
+        ///   - fallbackToDownload: true  → falls back to PXRedirectToFileException (browser download)
+        ///   - fallbackToDownload: false → throws PXException with a clear error message
+        /// </summary>
+        public virtual void QueueLabelFileToDeviceHub(FileInfo fileInfo, bool fallbackToDownload)
+        {
+            if (fileInfo == null)
+                throw new PXException("No label file was provided for DeviceHub printing.");
+
+            if (!fileInfo.UID.HasValue || fileInfo.UID.Value == Guid.Empty)
+                throw new PXException("Label file does not have a valid UID for DeviceHub printing.");
+
+            Guid? printerID = ResolveDeviceHubPrinter();
+
+            if (!printerID.HasValue)
+            {
+                PXTrace.WriteWarning("[QUEUE-DEVICEHUB] No DeviceHub printer configured.");
+
+                if (fallbackToDownload)
+                {
+                    PXTrace.WriteWarning("[QUEUE-DEVICEHUB] Falling back to file download.");
+                    PrintSingleFile(fileInfo);
+                    return;
+                }
+
+                throw new PXException(
+                    "Carrier label was generated, but no DeviceHub printer is configured. " +
+                    "Please configure a printer for the PrintLabels report on this branch.");
+            }
+
+            Guid fileID = fileInfo.UID.Value;
+            Guid resolvedPrinterID = printerID.Value;
+
+            PXTrace.WriteInformation(
+                "[QUEUE-DEVICEHUB] Queuing async DeviceHub print job. File={0}, Printer={1}",
+                fileID, resolvedPrinterID);
+
+            _graph.LongOperationManager.StartAsyncOperation(ct =>
+            {
+                PXTrace.WriteInformation(
+                    "[QUEUE-DEVICEHUB] Async operation started for file {0}", fileID);
+
+                SOShipmentEntry freshGraph = PXGraph.CreateInstance<SOShipmentEntry>();
+                PackageCarrierLabelService svc = new PackageCarrierLabelService(freshGraph);
+
+                return svc.SendRawFileToPrinterAsync(fileID, resolvedPrinterID, ct);
+            });
+
+            PXTrace.WriteInformation("[QUEUE-DEVICEHUB] ✅ Print job queued successfully.");
+        }
+
+        /// <summary>
+        /// Send a carrier label file to the DeviceHub printer synchronously.
+        /// Intended for the WMS SCAN PATH, which is already executing inside a PXLongOperation.
+        ///
+        /// Calls SendRawFileToPrinterAsync via GetAwaiter().GetResult() because we are already
+        /// on a background thread (inside PXLongOperation.StartOperation) with no ASP.NET
+        /// synchronization context, making sync-over-async safe here.
+        ///
+        /// IMPORTANT: Do NOT call this from a UI thread or synchronization-context-bound context.
+        /// If the scan path is ever migrated to LongOperationManager.StartAsyncOperation,
+        /// pass the provided CancellationToken instead of CancellationToken.None.
+        ///
+        /// If no printer is configured, throws PXException with a clear message.
+        /// Does NOT fall back to file download — a redirect is unreliable inside WMS long operations.
+        /// </summary>
+        public virtual void PrintLabelFileToDeviceHubNow(FileInfo fileInfo)
+        {
+            if (fileInfo == null)
+                throw new PXException("No label file was provided for DeviceHub printing.");
+
+            if (!fileInfo.UID.HasValue || fileInfo.UID.Value == Guid.Empty)
+                throw new PXException("Label file does not have a valid UID for DeviceHub printing.");
+
+            Guid? printerID = ResolveDeviceHubPrinter();
+
+            if (!printerID.HasValue)
+            {
+                throw new PXException(
+                    "Carrier label was generated, but no DeviceHub printer is configured. " +
+                    "Please configure a printer for the PrintLabels report on this branch.");
+            }
+
+            PXTrace.WriteInformation(
+                "[PRINT-NOW] Sending label to DeviceHub printer synchronously. File={0}, Printer={1}",
+                fileInfo.UID.Value, printerID.Value);
+
+            // TODO: If scan path migrates to StartAsyncOperation, replace CancellationToken.None
+            // with the token provided by that context.
+            SendRawFileToPrinterAsync(fileInfo.UID.Value, printerID.Value, CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
+
+            PXTrace.WriteInformation("[PRINT-NOW] ✅ Label sent to DeviceHub printer successfully.");
         }
 
         /// <summary>

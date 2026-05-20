@@ -6,7 +6,6 @@ using PX.Data;
 using PX.Objects.SO;
 using PX.Objects.CS;
 using PX.SM;
-using PX.Objects.CR;
 
 namespace PX.Objects.SO
 {
@@ -35,10 +34,11 @@ namespace PX.Objects.SO
 
             // ========================================================================
             // Variables to capture state from inside filter scope
-            // These will be used OUTSIDE the scope to avoid context leakage
+            // These will be used OUTSIDE the scope to avoid context leakage.
+            // queuedFile: has a valid UID, ready for DeviceHub queuing via service
+            // fallbackFile: no UID, only direct download is possible
             // ========================================================================
             FileInfo queuedFile = null;
-            Guid? queuedPrinterID = null;
             FileInfo fallbackFile = null;
 
             // ========================================================================
@@ -63,28 +63,17 @@ namespace PX.Objects.SO
                         PXTrace.WriteInformation(
                             "[MANUAL-PRINT] Using existing label file: {0}",
                             existingFile.Name);
-                        
-                        // Capture existing file for use outside scope
+
                         if (existingFile.UID.HasValue)
                         {
+                            // Valid UID — can queue to DeviceHub via service
                             queuedFile = existingFile;
-                            queuedPrinterID = ResolveDeviceHubPrinter();
-                            if (!queuedPrinterID.HasValue)
-                            {
-                                // No printer - use fallback download
-                                fallbackFile = existingFile;
-                                queuedFile = null;
-                            }
                         }
                         else
                         {
-                            // No UID - use fallback download
+                            // No UID — fall back to direct download
                             fallbackFile = existingFile;
                         }
-                        
-                        // Exit scope to use captured state
-                        // IMPORTANT: This return happens INSIDE the using block, but values are captured
-                        // actual queueing happens outside scope
                     }
                     else
                     {
@@ -95,25 +84,15 @@ namespace PX.Objects.SO
                                 "[MANUAL-PRINT] ✅ Label generated: {0}",
                                 generatedFile.Name);
 
-                            // ========================================================================
-                            // Simplify refresh: just request refresh, avoid heavy cache clearing
-                            // ========================================================================
                             PXTrace.WriteInformation(
                                 "[MANUAL-PRINT] Requesting package grid refresh after generation");
 
                             Base.Packages.View.RequestRefresh();
 
-                            // Capture generated file for use outside scope
                             if (generatedFile.UID.HasValue)
                             {
+                                // Valid UID — can queue to DeviceHub via service
                                 queuedFile = generatedFile;
-                                queuedPrinterID = ResolveDeviceHubPrinter();
-                                if (!queuedPrinterID.HasValue)
-                                {
-                                    // No printer - use fallback download
-                                    fallbackFile = generatedFile;
-                                    queuedFile = null;
-                                }
                             }
                             else
                             {
@@ -144,42 +123,27 @@ namespace PX.Objects.SO
             }
 
             // ========================================================================
-            // FIX #1: CRITICAL - Print job queueing happens OUTSIDE filter scope
-            // This prevents CarrierPackageFilterScope context from leaking into async operation
+            // Print job queueing happens OUTSIDE filter scope.
+            // This prevents CarrierPackageFilterScope context from leaking into async operation.
+            // Service handles printer resolution, DeviceHub queuing, and download fallback.
             // ========================================================================
-            if (queuedFile != null && queuedPrinterID.HasValue)
+            if (queuedFile != null)
             {
                 PXTrace.WriteInformation(
-                    "[MANUAL-PRINT] Queueing DeviceHub print job for file {0} (OUTSIDE scope)",
-                    queuedFile.UID.Value);
-                QueueFilePrintJob(queuedFile.UID.Value, queuedPrinterID.Value);
+                    "[MANUAL-PRINT] Handing off to service.QueueLabelFileToDeviceHub (OUTSIDE scope). File={0}",
+                    queuedFile.UID.HasValue ? queuedFile.UID.Value.ToString() : "(no UID)");
 
-                // ====================================================================
-                // OPTIONAL: Also prompt user to download file after print job is queued
-                // 
-                // Set to true for testing/debugging, false for production.
-                // This should later become a user preference/configuration setting.
-                // Default production behavior: queue print only, no download prompt.
-                // ====================================================================
-                bool alsoDownloadAfterPrint = true; // TODO: Make this configurable per user preference
-
-                if (alsoDownloadAfterPrint)
-                {
-                    PXTrace.WriteInformation(
-                        "[MANUAL-PRINT] Also offering file download after print job queued");
-                    var svc = new PackageCarrierLabelService(Base);
-                    svc.PrintSingleFile(queuedFile);
-                    // NOTE: PrintSingleFile throws PXRedirectToFileException, which stops execution
-                    // This is intentional - the print job was already queued before the exception
-                }
+                var svc = new PackageCarrierLabelService(Base);
+                // fallbackToDownload: true — if no printer configured, fall back to browser download
+                svc.QueueLabelFileToDeviceHub(queuedFile, fallbackToDownload: true);
 
                 return adapter.Get();
             }
             else if (fallbackFile != null)
             {
-                // FIX #6: Fallback file download happens OUTSIDE scope
+                // No UID on file — cannot queue to DeviceHub, use direct download
                 PXTrace.WriteWarning(
-                    "[MANUAL-PRINT] No printer configured, using file download fallback (OUTSIDE scope)");
+                    "[MANUAL-PRINT] File has no UID, using direct file download fallback (OUTSIDE scope)");
                 var svc = new PackageCarrierLabelService(Base);
                 svc.PrintSingleFile(fallbackFile);
                 return adapter.Get();
@@ -197,96 +161,6 @@ namespace PX.Objects.SO
 
             PrintSelectedPackageLabel.SetVisible(true);
             PrintSelectedPackageLabel.SetEnabled(true);
-        }
-
-        /// <summary>
-        /// Resolve DeviceHub printer for carrier label printing.
-        /// 
-        /// Uses Acumatica's native notification utility to find printer
-        /// by PrintLabels report.
-        /// 
-        /// Returns null if no printer is configured.
-        /// </summary>
-        protected virtual Guid? ResolveDeviceHubPrinter()
-        {
-            try
-            {
-                var notificationUtility = new NotificationUtility(Base);
-                Guid? printerID = notificationUtility.SearchPrinter(
-                    SONotificationSource.Customer,
-                    SOReports.PrintLabels,
-                    Base.Accessinfo.BranchID);
-
-                if (printerID.HasValue && printerID.Value != Guid.Empty)
-                {
-                    PXTrace.WriteInformation(
-                        "[PRINT-RESOLVE] Printer resolved. PrinterID={0}",
-                        printerID.Value);
-                    return printerID;
-                }
-
-                PXTrace.WriteWarning(
-                    "[PRINT-RESOLVE] No printer resolved for PrintLabels");
-                return null;
-            }
-            catch (Exception ex)
-            {
-                PXTrace.WriteError(
-                    "[PRINT-RESOLVE] Exception resolving printer: {0}",
-                    ex);
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// Queue raw ZPL label file to DeviceHub printer via LongOperationManager.
-        /// 
-        /// Purpose:
-        /// Creates async print job so file is sent to printer, not downloaded.
-        /// Uses LongOperationManager.StartAsyncOperation for proper Acumatica pattern.
-        /// 
-        /// Parameters:
-        /// - fileID: The persisted file UID
-        /// - printerID: The DeviceHub printer GUID
-        /// 
-        /// Why LongOperationManager:
-        /// - Proper async context in Acumatica
-        /// - Avoids graph lifetime issues
-        /// - Integrates with UI progress/feedback
-        /// </summary>
-        protected virtual void QueueFilePrintJob(Guid fileID, Guid printerID)
-        {
-            if (fileID == Guid.Empty)
-                throw new PXException("File ID is required for queuing print job.");
-
-            if (printerID == Guid.Empty)
-                throw new PXException("Printer ID is required for queuing print job.");
-
-            PXTrace.WriteInformation(
-                "[MANUAL-PRINT] Queuing print job for file {0} to printer {1}",
-                fileID, printerID);
-
-            // ====================================================================
-            // Queue async print job using LongOperationManager
-            // Creates fresh graph inside async context
-            // ====================================================================
-            Base.LongOperationManager.StartAsyncOperation(ct =>
-            {
-                // TRACE #3: Async operation start
-                PXTrace.WriteInformation(
-                    "[PRINT-ASYNC] Starting async DeviceHub operation for file {0}",
-                    fileID);
-
-                // Create fresh graph instance inside async context
-                SOShipmentEntry freshGraph = PXGraph.CreateInstance<SOShipmentEntry>();
-                PackageCarrierLabelService svc = new PackageCarrierLabelService(freshGraph);
-
-                // Call async method that uses fresh graph
-                return svc.SendRawFileToPrinterAsync(fileID, printerID, ct);
-            });
-
-            PXTrace.WriteInformation(
-                "[MANUAL-PRINT] Print job queued successfully");
         }
 
         public delegate void ShipPackagesDelegate(SOShipment shiporder);
