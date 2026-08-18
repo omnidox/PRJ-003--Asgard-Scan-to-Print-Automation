@@ -19,7 +19,7 @@ namespace AA.Objects.AL.Integration.PerPackage
     {
         // Enable temporarily when investigating model/rule internals. Keep false in normal use
         // so one print operation does not push useful errors out of Acumatica's trace window.
-        private const bool DetailedDiagnostics = false;
+        private static readonly bool DetailedDiagnostics = false;
 
         private static void WriteDiagnostic(string message, params object[] args)
         {
@@ -352,17 +352,24 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                     object selectedLabelRow = verifyPackage ?? packageToVerify;
 
-                    AcuLabelContext printContext = AcuLabelContext.CreateSingleRowPrintContext(
+                    // Adapter is init-only in the current Asgard build, so construct the
+                    // same single-row context shape with Adapter in the initializer.
+                    AcuLabelContext printContext = new AcuLabelContext(
                         _graph.GetType(),
                         shipment,
-                        selectedLabelRow,
                         modelId,
-                        shipment.CustomerID);
+                        false,
+                        false)
+                    {
+                        IsSilent = true,
+                        SingleRow = selectedLabelRow,
+                        IsAlwaysPrint = true,
+                        BAccountID = shipment.CustomerID,
+                        Adapter = adapter
+                    };
 
                     if (printContext == null)
                         throw new PXException("CreateSingleRowPrintContext returned null.");
-
-                    printContext.Adapter = adapter;
 
                     string modelName = printContext.Model != null ? printContext.Model.Name : "<null>";
                     string printerName = printContext.Printer != null ? printContext.Printer.Name : "<null>";
@@ -582,7 +589,7 @@ namespace AA.Objects.AL.Integration.PerPackage
         /// This method:
         /// 1. Queries all active ALModel records for SO302000 screen
         /// 2. Filters for package-based models (Packages, ALPackages, ALiStarPackages)
-        /// 3. Evaluates FilterRuleID and then PrintRuleID using Asgard RuleUtils
+        /// 3. Evaluates FilterRuleID and then PrintRuleID using Asgard's public Scriban evaluator
         /// 4. Returns exactly one matching model, or throws clear errors for:
         ///    - 0 matches: No model applies to this customer
         ///    - 2+ matches: Multiple models match; need to adjust rules
@@ -820,7 +827,16 @@ namespace AA.Objects.AL.Integration.PerPackage
                 reverse,
                 rule?.Expression ?? "<none>");
 
-            bool matched = RuleUtils.EvalRule(context, rule, reverse);
+            // RuleUtils is internal in this Asgard build. This mirrors its decompiled
+            // EvalRule behavior using the public evaluator: a missing/empty rule passes,
+            // otherwise evaluate with a true default and apply the reverse flag.
+            string expression = rule?.Expression;
+            bool matched = rule == null || string.IsNullOrEmpty(expression)
+                ? true
+                : NewScribanUtils.EvalExpr<bool>(context, expression, true);
+
+            if (rule != null && !string.IsNullOrEmpty(expression) && reverse)
+                matched = !matched;
 
             WriteDiagnostic(
                 "[RULE-EVAL-NATIVE] Model={0}, Stage={1}, Result={2}",

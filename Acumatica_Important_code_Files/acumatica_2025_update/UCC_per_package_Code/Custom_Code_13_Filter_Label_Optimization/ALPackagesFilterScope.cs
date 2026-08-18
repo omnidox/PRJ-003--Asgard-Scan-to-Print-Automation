@@ -14,7 +14,7 @@ namespace AA.Objects.AL.Integration.PerPackage
 
     internal static class ALPackagesFilterScope
     {
-        private const bool DetailedDiagnostics = false;
+        private static readonly bool DetailedDiagnostics = false;
 
         private static void WriteDiagnostic(string message, params object[] args)
         {

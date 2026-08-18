@@ -44,7 +44,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             PickPackShip.PackMode.BoxConfirming.CompleteState.Logic,
             PickPackShip.Host>
     {
-        private const bool DetailedDiagnostics = false;
+        private static readonly bool DetailedDiagnostics = false;
 
         private static void WriteDiagnostic(string message, params object[] args)
         {

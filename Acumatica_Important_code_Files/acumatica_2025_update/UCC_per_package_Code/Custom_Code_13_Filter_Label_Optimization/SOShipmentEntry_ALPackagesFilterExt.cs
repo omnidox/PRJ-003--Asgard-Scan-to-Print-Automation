@@ -21,7 +21,7 @@ namespace AA.Objects.AL.Integration.PerPackage
     /// </summary>
     public class SOShipmentEntry_AsgardViewFilterExt : PXGraphExtension<SOShipmentEntry>
     {
-        private const bool DetailedDiagnostics = false;
+        private static readonly bool DetailedDiagnostics = false;
 
         private static void WriteDiagnostic(string message, params object[] args)
         {
