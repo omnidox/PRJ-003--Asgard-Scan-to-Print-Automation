@@ -44,6 +44,14 @@ namespace AA.Objects.AL.Integration.PerPackage
             PickPackShip.PackMode.BoxConfirming.CompleteState.Logic,
             PickPackShip.Host>
     {
+        private const bool DetailedDiagnostics = false;
+
+        private static void WriteDiagnostic(string message, params object[] args)
+        {
+            if (DetailedDiagnostics)
+                PXTrace.WriteInformation(message, args);
+        }
+
         public static bool IsActive() => true;
 
         /// <summary>
@@ -68,7 +76,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             int? lineNbr = package?.LineNbr;
             bool wasNotConfirmed = package?.Confirmed != true;
 
-            PXTrace.WriteInformation(
+            WriteDiagnostic(
                 "[SCAN-HOOK] SettleAndConfirmPackage override: Shipment={0}, Package={1}, WasConfirmed={2}",
                 shipmentNbr ?? "null", lineNbr, !wasNotConfirmed);
 
@@ -81,16 +89,16 @@ namespace AA.Objects.AL.Integration.PerPackage
             // - ClearStates()
             // - Basis.Reset(fullReset: false)
             // - Basis.ReportInfo(Msg.Success)
-            PXTrace.WriteInformation("[SCAN-HOOK] Calling baseMethod for package confirmation");
+            WriteDiagnostic("[SCAN-HOOK] Calling baseMethod for package confirmation");
 
             try
             {
                 base_SettleAndConfirmPackage(package);
-                PXTrace.WriteInformation("[SCAN-HOOK] ✅ baseMethod completed successfully");
+                WriteDiagnostic("[SCAN-HOOK] ✅ baseMethod completed successfully");
             }
             catch (Exception ex)
             {
-                PXTrace.WriteInformation("[SCAN-HOOK] ❌ baseMethod threw exception: {0}", ex.Message);
+                WriteDiagnostic("[SCAN-HOOK] ❌ baseMethod threw exception: {0}", ex.Message);
                 throw;
             }
 
@@ -117,7 +125,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     // - No race conditions or nested operation conflicts
                     PXLongOperation.StartOperation(Base, delegate()
                     {
-                        PXTrace.WriteInformation(
+                        WriteDiagnostic(
                             "[SCAN-HOOK-LONGOP] Long operation started for print: Shipment={0}, Package={1}",
                             shipmentNbr, lineNbr.Value);
 
@@ -135,17 +143,17 @@ namespace AA.Objects.AL.Integration.PerPackage
                         // ✅ Call the shared print core logic
                         // This is the SAME method called by the manual button print path
                         // Both paths now use identical print logic
-                        PXTrace.WriteInformation(
+                        WriteDiagnostic(
                             "[SCAN-HOOK-LONGOP] Calling PrintForPackageCore: Shipment={0}, Package={1}",
                             shipmentNbr, lineNbr.Value);
 
                         asgardExt.PrintForPackageCore(shipmentNbr, lineNbr.Value);
 
-                        PXTrace.WriteInformation(
+                        WriteDiagnostic(
                             "[SCAN-HOOK-LONGOP] ✅ PrintForPackageCore completed successfully");
                     });
 
-                    PXTrace.WriteInformation(
+                    WriteDiagnostic(
                         "[SCAN-HOOK] ✅ Print operation queued successfully for package {0}",
                         lineNbr);
                 }
@@ -160,7 +168,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             }
             else
             {
-                PXTrace.WriteInformation(
+                WriteDiagnostic(
                     "[SCAN-HOOK] Skipping print: wasNotConfirmed={0}, shipmentNbr={1}, lineNbr={2}",
                     wasNotConfirmed, shipmentNbr ?? "null", lineNbr);
             }

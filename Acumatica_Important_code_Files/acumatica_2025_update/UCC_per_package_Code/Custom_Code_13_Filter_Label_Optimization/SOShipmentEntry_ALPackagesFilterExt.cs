@@ -21,6 +21,14 @@ namespace AA.Objects.AL.Integration.PerPackage
     /// </summary>
     public class SOShipmentEntry_AsgardViewFilterExt : PXGraphExtension<SOShipmentEntry>
     {
+        private const bool DetailedDiagnostics = false;
+
+        private static void WriteDiagnostic(string message, params object[] args)
+        {
+            if (DetailedDiagnostics)
+                PXTrace.WriteInformation(message, args);
+        }
+
         private PXView _originalALPackagesView;
         private PXView _originalALiStarPackagesView;
 
@@ -46,14 +54,14 @@ namespace AA.Objects.AL.Integration.PerPackage
         {
             if (!Base.Views.ContainsKey(viewName))
             {
-                PXTrace.WriteInformation("[VIEW-FILTER] View '{0}' does not exist in SOShipmentEntry", viewName);
+                WriteDiagnostic("[VIEW-FILTER] View '{0}' does not exist in SOShipmentEntry", viewName);
                 return;
             }
 
             PXView originalView = Base.Views[viewName];
             if (originalView == null)
             {
-                PXTrace.WriteInformation("[VIEW-FILTER] View '{0}' is NULL", viewName);
+                WriteDiagnostic("[VIEW-FILTER] View '{0}' is NULL", viewName);
                 return;
             }
 
@@ -71,8 +79,8 @@ namespace AA.Objects.AL.Integration.PerPackage
                 originalView.BqlSelect,
                 new PXSelectDelegate(() => FilteredAsgardView(viewName, originalView)));
 
-            PXTrace.WriteInformation("[VIEW-FILTER] ✅ Base.Views['{0}'] replaced with filtered view", viewName);
-            PXTrace.WriteInformation("[VIEW-FILTER] Original BqlSelect type: {0}", 
+            WriteDiagnostic("[VIEW-FILTER] ✅ Base.Views['{0}'] replaced with filtered view", viewName);
+            WriteDiagnostic("[VIEW-FILTER] Original BqlSelect type: {0}", 
                 originalView.BqlSelect?.GetType().FullName ?? "null");
         }
 
@@ -90,13 +98,13 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             if (!ALPackagesFilterScope.IsActive)
             {
-                PXTrace.WriteInformation("[FILTER-{0}] ALPackagesFilterScope is NOT active - returning all rows", viewName);
+                WriteDiagnostic("[FILTER-{0}] ALPackagesFilterScope is NOT active - returning all rows", viewName);
                 foreach (object row in rawRows)
                     yield return row;
                 yield break;
             }
 
-            PXTrace.WriteInformation("[FILTER-{0}] ALPackagesFilterScope IS active for shipment {1}", 
+            WriteDiagnostic("[FILTER-{0}] ALPackagesFilterScope IS active for shipment {1}", 
                 viewName, ALPackagesFilterScope.ShipmentNbr);
 
             string currentShipmentNbr = Base.Document.Current?.ShipmentNbr;
@@ -114,18 +122,18 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 if (!ALPackagesFilterScope.Matches(currentShipmentNbr, package.LineNbr))
                 {
-                    PXTrace.WriteInformation("[FILTER-{0}] Package LineNbr={1} does NOT match filter", 
+                    WriteDiagnostic("[FILTER-{0}] Package LineNbr={1} does NOT match filter", 
                         viewName, package.LineNbr);
                     continue;
                 }
 
                 filteredCount++;
-                PXTrace.WriteInformation("[FILTER-{0}] Package LineNbr={1} MATCHES filter - yielding row type {2}", 
+                WriteDiagnostic("[FILTER-{0}] Package LineNbr={1} MATCHES filter - yielding row type {2}", 
                     viewName, package.LineNbr, row.GetType().Name);
                 yield return row;  // ✅ Yield the entire row (PXResult), not just the package
             }
 
-            PXTrace.WriteInformation("[FILTER-{0}] Filtered {1} out of {2} rows", viewName, filteredCount, totalCount);
+            PXTrace.WriteInformation("[ASGARD-FILTER] View={0}, selected {1} of {2} package rows", viewName, filteredCount, totalCount);
         }
     }
 }

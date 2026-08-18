@@ -13,6 +13,14 @@ namespace AA.Objects.AL.Integration.PerPackage
 {
     public class SOShipmentEntry_AsgardExt : PXGraphExtension<SOShipmentEntry>
     {
+        private const bool DetailedDiagnostics = false;
+
+        private static void WriteDiagnostic(string message, params object[] args)
+        {
+            if (DetailedDiagnostics)
+                PXTrace.WriteInformation(message, args);
+        }
+
         public static bool IsActive()
         {
             return true;
@@ -64,22 +72,22 @@ namespace AA.Objects.AL.Integration.PerPackage
             // Includes both base DAC fields AND extension fields (UsrTCUCC128, UsrCartonNbr, etc.)
             if (currentSelected != null)
             {
-                PXTrace.WriteInformation("[PKG-ALL] === Base SOPackageDetail Fields ===");
+                WriteDiagnostic("[PKG-ALL] === Base SOPackageDetail Fields ===");
                 
                 foreach (var prop in currentSelected.GetType().GetProperties())
                 {
                     try
                     {
                         object value = prop.GetValue(currentSelected);
-                        PXTrace.WriteInformation("[PKG-ALL] {0}: {1}", prop.Name, value?.ToString() ?? "null");
+                        WriteDiagnostic("[PKG-ALL] {0}: {1}", prop.Name, value?.ToString() ?? "null");
                     }
                     catch (Exception ex)
                     {
-                        PXTrace.WriteInformation("[PKG-ALL] {0}: ERROR - {1}", prop.Name, ex.Message);
+                        WriteDiagnostic("[PKG-ALL] {0}: ERROR - {1}", prop.Name, ex.Message);
                     }
                 }
 
-                PXTrace.WriteInformation("[PKG-EXT] === DAC Extension Fields ===");
+                WriteDiagnostic("[PKG-EXT] === DAC Extension Fields ===");
 
                 PXCache cache = Base.Caches[currentSelected.GetType()];
 
@@ -97,7 +105,7 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                         if (method == null)
                         {
-                            PXTrace.WriteInformation("[PKG-EXT] Could not find generic GetExtension<T>(row) method.");
+                            WriteDiagnostic("[PKG-EXT] Could not find generic GetExtension<T>(row) method.");
                             continue;
                         }
 
@@ -107,28 +115,28 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                         if (ext == null)
                         {
-                            PXTrace.WriteInformation("[PKG-EXT] Extension {0}: null", extType.FullName);
+                            WriteDiagnostic("[PKG-EXT] Extension {0}: null", extType.FullName);
                             continue;
                         }
 
-                        PXTrace.WriteInformation("[PKG-EXT] Extension: {0}", extType.FullName);
+                        WriteDiagnostic("[PKG-EXT] Extension: {0}", extType.FullName);
 
                         foreach (var prop in ext.GetType().GetProperties())
                         {
                             try
                             {
                                 object value = prop.GetValue(ext, null);
-                                PXTrace.WriteInformation("[PKG-EXT] {0}: {1}", prop.Name, value?.ToString() ?? "null");
+                                WriteDiagnostic("[PKG-EXT] {0}: {1}", prop.Name, value?.ToString() ?? "null");
                             }
                             catch (Exception ex)
                             {
-                                PXTrace.WriteInformation("[PKG-EXT] {0}: ERROR - {1}", prop.Name, ex.Message);
+                                WriteDiagnostic("[PKG-EXT] {0}: ERROR - {1}", prop.Name, ex.Message);
                             }
                         }
                     }
                     catch (Exception ex)
                     {
-                        PXTrace.WriteInformation("[PKG-EXT] Could not inspect extension {0}: {1}", extType.FullName, ex.Message);
+                        WriteDiagnostic("[PKG-EXT] Could not inspect extension {0}: {1}", extType.FullName, ex.Message);
                     }
                 }
 
@@ -199,7 +207,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                         catch { }
                     }
 
-                    PXTrace.WriteInformation(
+                    WriteDiagnostic(
                         "[PKG-CHECK] LineNbr={0}, UsrTCUCC128={1}, UsrCartonNbr={2}",
                         currentSelected.LineNbr,
                         ucc128Value?.ToString() ?? "null",
@@ -207,12 +215,12 @@ namespace AA.Objects.AL.Integration.PerPackage
                 }
                 catch (Exception checkEx)
                 {
-                    PXTrace.WriteInformation("[PKG-CHECK] ERROR reading critical fields: {0}", checkEx.Message);
+                    WriteDiagnostic("[PKG-CHECK] ERROR reading critical fields: {0}", checkEx.Message);
                 }
             }
             else
             {
-                PXTrace.WriteInformation("[PKG-ALL] WARNING: currentSelected is NULL - cannot log fields");
+                WriteDiagnostic("[PKG-ALL] WARNING: currentSelected is NULL - cannot log fields");
             }
 
             if (Base.IsDirty)
@@ -226,7 +234,7 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             if (selectedPackageLineNbr != null)
             {
-                PXTrace.WriteInformation("[PRINT] Using selected package: {0}", selectedPackageLineNbr);
+                WriteDiagnostic("[PRINT] Using selected package: {0}", selectedPackageLineNbr);
             }
 
             string shipmentNbr = shipment.ShipmentNbr;
@@ -252,17 +260,17 @@ namespace AA.Objects.AL.Integration.PerPackage
         /// </summary>
         public virtual void QueuePrintForPackage(string shipmentNbr, int packageLineNbr)
         {
-            PXTrace.WriteInformation("[QUEUE] QueuePrintForPackage called: Shipment={0}, Package={1}", 
+            WriteDiagnostic("[QUEUE] QueuePrintForPackage called: Shipment={0}, Package={1}", 
                 shipmentNbr, packageLineNbr);
 
             PXLongOperation.StartOperation(Base, delegate()
             {
-                PXTrace.WriteInformation("[QUEUE] PXLongOperation started for shipment {0}", shipmentNbr);
+                WriteDiagnostic("[QUEUE] PXLongOperation started for shipment {0}", shipmentNbr);
 
                 // ✅ LAYER 2→3 delegation
                 PrintForPackageCore(shipmentNbr, packageLineNbr);
 
-                PXTrace.WriteInformation("[QUEUE] PXLongOperation completed for shipment {0}", shipmentNbr);
+                WriteDiagnostic("[QUEUE] PXLongOperation completed for shipment {0}", shipmentNbr);
             });
         }
 
@@ -287,7 +295,7 @@ namespace AA.Objects.AL.Integration.PerPackage
         /// </summary>
         public virtual void PrintForPackageCore(string shipmentNbr, int packageLineNbr)
         {
-            PXTrace.WriteInformation("[INTERNAL] PrintForPackageCore: Creating fresh graph for shipment {0}", 
+            PXTrace.WriteInformation("[ASGARD-PRINT] Core start: Creating fresh graph for shipment {0}", 
                 shipmentNbr);
 
             SOShipmentEntry graph = PXGraph.CreateInstance<SOShipmentEntry>();
@@ -301,6 +309,23 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             graph.Document.Current = shipmentInLongOp;
 
+            SOPackageDetailEx selectedPackage = PXSelect<
+                SOPackageDetailEx,
+                Where<
+                    SOPackageDetailEx.shipmentNbr, Equal<Required<SOPackageDetailEx.shipmentNbr>>,
+                    And<SOPackageDetailEx.lineNbr, Equal<Required<SOPackageDetailEx.lineNbr>>>>>
+                .Select(graph, shipmentNbr, packageLineNbr);
+
+            if (selectedPackage == null)
+            {
+                throw new PXException(
+                    "Package line {0} could not be reloaded for shipment {1}.",
+                    packageLineNbr,
+                    shipmentNbr);
+            }
+
+            graph.Packages.Current = selectedPackage;
+
             // ✅ CRITICAL: Delegate to AsgardLabelService
             // The service handles:
             // 1. Checkbox management (UsrALPrintLabel state)
@@ -312,7 +337,9 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             // ✅ CRITICAL: Dynamically resolve the correct model based on Asgard rules
             // This replaces hardcoding and uses Asgard's confirmed rule evaluation system
-            Guid? modelId = service.ResolveModelIdByAsgardRules(shipmentInLongOp);
+            Guid? modelId = service.ResolveModelIdByAsgardRules(
+                shipmentInLongOp,
+                selectedPackage);
 
             if (modelId == null || modelId == Guid.Empty)
             {
@@ -321,7 +348,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     "Please verify the Asgard label model rules for package models on SO302000.");
             }
 
-            PXTrace.WriteInformation("[INTERNAL] Model resolved: ModelID={0}", modelId);
+            PXTrace.WriteInformation("[ASGARD-PRINT] Model resolved: ModelID={0}", modelId);
 
             // ✅ Service owns filter scope + checkbox + context + print
             // No outer wrapping needed here
@@ -340,7 +367,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     "No labels were generated. Please verify the selected package is valid and the selected label model is configured correctly.");
             }
 
-            PXTrace.WriteInformation("[INTERNAL] ✅ Successfully printed {0} label(s) for package line {1}", 
+            PXTrace.WriteInformation("[ASGARD-PRINT] ✅ Successfully printed {0} label(s) for package line {1}", 
                 results.NbLabels, packageLineNbr);
         }
 

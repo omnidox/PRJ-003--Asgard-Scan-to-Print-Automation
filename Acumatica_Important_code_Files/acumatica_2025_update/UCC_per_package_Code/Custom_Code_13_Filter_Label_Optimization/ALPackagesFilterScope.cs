@@ -14,6 +14,14 @@ namespace AA.Objects.AL.Integration.PerPackage
 
     internal static class ALPackagesFilterScope
     {
+        private const bool DetailedDiagnostics = false;
+
+        private static void WriteDiagnostic(string message, params object[] args)
+        {
+            if (DetailedDiagnostics)
+                PXTrace.WriteInformation(message, args);
+        }
+
         private static readonly AsyncLocal<ALPackagesFilterState> _state = new AsyncLocal<ALPackagesFilterState>();
 
         public static bool IsActive => _state.Value != null;
@@ -25,20 +33,20 @@ namespace AA.Objects.AL.Integration.PerPackage
             ALPackagesFilterState state = _state.Value;
             if (state == null)
             {
-                PXTrace.WriteInformation("[SCOPE.Matches] State is null - MISMATCH");
+                WriteDiagnostic("[SCOPE.Matches] State is null - MISMATCH");
                 return false;
             }
 
             if (!string.Equals(state.ShipmentNbr, shipmentNbr, StringComparison.OrdinalIgnoreCase))
             {
-                PXTrace.WriteInformation("[SCOPE.Matches] Shipment mismatch: expected={0}, actual={1} - MISMATCH", 
+                WriteDiagnostic("[SCOPE.Matches] Shipment mismatch: expected={0}, actual={1} - MISMATCH", 
                     state.ShipmentNbr, shipmentNbr);
                 return false;
             }
 
             if (state.PackageLineNbrs == null || state.PackageLineNbrs.Count == 0)
             {
-                PXTrace.WriteInformation("[SCOPE.Matches] No package line numbers in filter state - MISMATCH");
+                WriteDiagnostic("[SCOPE.Matches] No package line numbers in filter state - MISMATCH");
                 return false;
             }
 
@@ -46,11 +54,11 @@ namespace AA.Objects.AL.Integration.PerPackage
             
             if (matches)
             {
-                PXTrace.WriteInformation("[SCOPE.Matches] Package {0} found in filter - MATCH", packageLineNbr);
+                WriteDiagnostic("[SCOPE.Matches] Package {0} found in filter - MATCH", packageLineNbr);
             }
             else
             {
-                PXTrace.WriteInformation("[SCOPE.Matches] Package {0} NOT in filter set [{1}] - MISMATCH", 
+                WriteDiagnostic("[SCOPE.Matches] Package {0} NOT in filter set [{1}] - MISMATCH", 
                     packageLineNbr, string.Join(",", state.PackageLineNbrs.Where(x => x.HasValue).Select(x => x.Value)));
             }
 
@@ -61,7 +69,7 @@ namespace AA.Objects.AL.Integration.PerPackage
         {
             HashSet<int?> lines = new HashSet<int?>(packageLineNbrs ?? Enumerable.Empty<int?>());
 
-            PXTrace.WriteInformation("[SCOPE] Activating filter scope for shipment {0} with {1} package line(s): {2}", 
+            WriteDiagnostic("[SCOPE] Activating filter scope for shipment {0} with {1} package line(s): {2}", 
                 shipmentNbr, lines.Count, string.Join(",", lines.Where(x => x.HasValue).Select(x => x.Value)));
 
             ALPackagesFilterState previous = _state.Value;
@@ -72,7 +80,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                 PackageLineNbrs = lines
             };
 
-            PXTrace.WriteInformation("[SCOPE] Filter scope activated. Previous state: {0}", 
+            WriteDiagnostic("[SCOPE] Filter scope activated. Previous state: {0}", 
                 previous != null ? $"Shipment={previous.ShipmentNbr}, Packages={string.Join(",", previous.PackageLineNbrs)}" : "null");
 
             return new RestoreDisposable(previous);

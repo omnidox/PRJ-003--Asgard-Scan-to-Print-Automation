@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using AA.Objects.Labels;
 using Asgard.Labels.Abstractions.Interface;
+using Asgard.Labels.Impl;
 using Asgard.Labels.Impl.Context;  
 using Asgard.Labels.Impl.Poco;      
 using Asgard.Labels.Impl.Language.MyScriban;  // ← REQUIRED: For NewScribanUtils
@@ -16,6 +17,16 @@ namespace AA.Objects.AL.Integration.PerPackage
 {
     public class AsgardLabelService
     {
+        // Enable temporarily when investigating model/rule internals. Keep false in normal use
+        // so one print operation does not push useful errors out of Acumatica's trace window.
+        private const bool DetailedDiagnostics = false;
+
+        private static void WriteDiagnostic(string message, params object[] args)
+        {
+            if (DetailedDiagnostics)
+                PXTrace.WriteInformation(message, args);
+        }
+
         private readonly SOShipmentEntry _graph;
         private readonly ILabelGenerator<IAcuLabelContext> _labelGenerator;
 
@@ -71,19 +82,19 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 if (boxPrintModelId != null && boxPrintModelId != Guid.Empty)
                 {
-                    PXTrace.WriteInformation(
+                    WriteDiagnostic(
                         $"Selected-package native print: using ALSetupSlot.BoxPrintModelID = {boxPrintModelId}");
 
                     return boxPrintModelId;
                 }
 
-                PXTrace.WriteInformation(
+                WriteDiagnostic(
                     "Selected-package native print: ALSetupSlot.BoxPrintModelID is empty, falling back to model name lookup.");
             }
 
             Guid? modelIdByName = GetModelIdByName(modelName);
 
-            PXTrace.WriteInformation(
+            WriteDiagnostic(
                 $"Selected-package native print: resolved model '{modelName}' to ModelID = {modelIdByName}");
 
             return modelIdByName;
@@ -117,7 +128,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             string basedOnView = model != null ? model.BasedOnView : "<null>";
             string shipmentNbr = shipment != null ? shipment.ShipmentNbr : "<null>";
 
-            PXTrace.WriteInformation(
+            WriteDiagnostic(
                 $"Selected-package native print diagnostics: Shipment={shipmentNbr}, ModelID={modelId}, ModelName={modelName}, ScreenID={screenId}, BasedOnView={basedOnView}, GraphType={_graph.GetType().FullName}");
         }
 
@@ -130,7 +141,7 @@ namespace AA.Objects.AL.Integration.PerPackage
         {
             try
             {
-                PXTrace.WriteInformation("[CHECKBOX] Clearing UsrALPrintLabel on all packages for shipment {0}", shipmentNbr);
+                WriteDiagnostic("[CHECKBOX] Clearing UsrALPrintLabel on all packages for shipment {0}", shipmentNbr);
                 
                 var allPackages = PXSelect<
                     SOPackageDetailEx,
@@ -149,16 +160,16 @@ namespace AA.Objects.AL.Integration.PerPackage
                     }
                     catch (Exception setEx)
                     {
-                        PXTrace.WriteInformation("[CHECKBOX] ⚠️ Error clearing UsrALPrintLabel on package line {0}: {1}", 
+                        WriteDiagnostic("[CHECKBOX] ⚠️ Error clearing UsrALPrintLabel on package line {0}: {1}", 
                             pkg.LineNbr, setEx.Message);
                     }
                 }
 
-                PXTrace.WriteInformation("[CHECKBOX] ✅ Cleared UsrALPrintLabel on {0} package rows", clearedCount);
+                WriteDiagnostic("[CHECKBOX] ✅ Cleared UsrALPrintLabel on {0} package rows", clearedCount);
             }
             catch (Exception ex)
             {
-                PXTrace.WriteInformation("[CHECKBOX] ⚠️ Error in ClearAllPackagePrintFlags: {0}", ex.Message);
+                WriteDiagnostic("[CHECKBOX] ⚠️ Error in ClearAllPackagePrintFlags: {0}", ex.Message);
                 throw;
             }
         }
@@ -177,7 +188,7 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             try
             {
-                PXTrace.WriteInformation("[CHECKBOX] Setting UsrALPrintLabel on selected package line {0} for shipment {1}", 
+                WriteDiagnostic("[CHECKBOX] Setting UsrALPrintLabel on selected package line {0} for shipment {1}", 
                     selectedPackageLineNbr, shipmentNbr);
 
                 SOPackageDetailEx selectedPackage = PXSelect<
@@ -197,11 +208,11 @@ namespace AA.Objects.AL.Integration.PerPackage
                 _graph.Packages.Cache.SetValueExt(selectedPackage, "UsrALPrintLabel", true);
                 _graph.Packages.Cache.Update(selectedPackage);
 
-                PXTrace.WriteInformation("[CHECKBOX] ✅ Set UsrALPrintLabel=true on package line {0}", selectedPackageLineNbr);
+                WriteDiagnostic("[CHECKBOX] ✅ Set UsrALPrintLabel=true on package line {0}", selectedPackageLineNbr);
             }
             catch (Exception ex)
             {
-                PXTrace.WriteInformation("[CHECKBOX] ⚠️ Error in SetOnlySelectedPackagePrintFlag: {0}", ex.Message);
+                WriteDiagnostic("[CHECKBOX] ⚠️ Error in SetOnlySelectedPackagePrintFlag: {0}", ex.Message);
                 throw;
             }
         }
@@ -224,7 +235,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             ValidateModelForNativeContextPrinting(model, modelId);
             TraceModelDiagnostics(model, modelId, shipment);
 
-            PXTrace.WriteInformation("[SERVICE] Verifying package {0} exists in shipment {1}", selectedPackageLineNbr, shipment.ShipmentNbr);
+            WriteDiagnostic("[SERVICE] Verifying package {0} exists in shipment {1}", selectedPackageLineNbr, shipment.ShipmentNbr);
 
             SOPackageDetailEx packageToVerify = PXSelect<
                 SOPackageDetailEx,
@@ -239,12 +250,12 @@ namespace AA.Objects.AL.Integration.PerPackage
                     $"Package line {selectedPackageLineNbr} not found in shipment {shipment.ShipmentNbr}.");
             }
 
-            PXTrace.WriteInformation(
+            WriteDiagnostic(
                 $"[SERVICE] Package {selectedPackageLineNbr} verified. Graph type: {_graph.GetType().FullName}");
 
             // ✅ [PKG PRINT] Diagnostics: Log selected package state BEFORE CreatePrintContext
-            PXTrace.WriteInformation("[PKG PRINT] Shipment={0}", shipment.ShipmentNbr);
-            PXTrace.WriteInformation("[PKG PRINT] Selected LineNbr={0}", selectedPackageLineNbr);
+            WriteDiagnostic("[PKG PRINT] Shipment={0}", shipment.ShipmentNbr);
+            WriteDiagnostic("[PKG PRINT] Selected LineNbr={0}", selectedPackageLineNbr);
             
             // Get UCC128 via reflection
             object selectedUcc128 = null;
@@ -253,9 +264,9 @@ namespace AA.Objects.AL.Integration.PerPackage
                 selectedUcc128 = packageToVerify.GetType().GetProperty("UsrTCUCC128")?.GetValue(packageToVerify);
             }
             catch { }
-            PXTrace.WriteInformation("[PKG PRINT] Selected UsrTCUCC128={0}", selectedUcc128 ?? "null");
+            WriteDiagnostic("[PKG PRINT] Selected UsrTCUCC128={0}", selectedUcc128 ?? "null");
 
-            PXTrace.WriteInformation(
+            WriteDiagnostic(
                 $"[SERVICE] Row-selection native print: shipment {shipment.ShipmentNbr} will print package line {selectedPackageLineNbr}");
 
             // ✅ Determine the model's BasedOnView to understand the data structure
@@ -267,18 +278,18 @@ namespace AA.Objects.AL.Integration.PerPackage
                 if (resolvedModel != null)
                 {
                     basedOnViewName = resolvedModel.BasedOnView;
-                    PXTrace.WriteInformation("[SERVICE] Model {0} is based on view: {1}", resolvedModel.Name, basedOnViewName ?? "null");
+                    WriteDiagnostic("[SERVICE] Model {0} is based on view: {1}", resolvedModel.Name, basedOnViewName ?? "null");
                 }
                 
                 if (string.IsNullOrWhiteSpace(basedOnViewName))
                 {
                     basedOnViewName = "ALPackages";
-                    PXTrace.WriteInformation("[SERVICE] Model has no BasedOnView specified, using default: {0}", basedOnViewName);
+                    WriteDiagnostic("[SERVICE] Model has no BasedOnView specified, using default: {0}", basedOnViewName);
                 }
             }
             catch (Exception ex)
             {
-                PXTrace.WriteInformation("[SERVICE] Error determining BasedOnView: {0}", ex.Message);
+                WriteDiagnostic("[SERVICE] Error determining BasedOnView: {0}", ex.Message);
                 basedOnViewName = "ALPackages";
             }
 
@@ -294,18 +305,18 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 // Step 3: Save once after both operations complete
                 _graph.Actions.PressSave();
-                PXTrace.WriteInformation("[CHECKBOX] ✅ Graph saved after setting print flags");
+                WriteDiagnostic("[CHECKBOX] ✅ Graph saved after setting print flags");
 
                 // Step 4: Activate filter scope for the selected package
                 // ✅ CRITICAL: Use int?[] to match Activate's signature: IEnumerable<int?>
                 using (ALPackagesFilterScope.Activate(shipment.ShipmentNbr, new int?[] { selectedPackageLineNbr }))
                 {
-                    PXTrace.WriteInformation("[CHECKBOX] ✅ ALPackagesFilterScope activated for package line {0}", selectedPackageLineNbr);
+                    WriteDiagnostic("[CHECKBOX] ✅ ALPackagesFilterScope activated for package line {0}", selectedPackageLineNbr);
 
-                    // ✅ CRITICAL: Use native CreatePrintContext (not CreateSingleRowPrintContext)
-                    // While filter scope is active, Asgard will query the filtered view and get the correct row structure
-                    // The UsrALPrintLabel flag is set above, so Asgard's NbCopies logic will see it checked
-                    PXTrace.WriteInformation("[CHECKBOX] ✅ Calling CreatePrintContext with BasedOnView={0}, ModelID={1}", 
+                    // Use Asgard's native single-row context so the model's BasedOnView is not
+                    // enumerated. This guarantees that only the requested package is printed,
+                    // including for models based on the native Packages view.
+                    WriteDiagnostic("[CHECKBOX] ✅ Calling CreateSingleRowPrintContext with BasedOnView={0}, ModelID={1}", 
                         basedOnViewName, modelId);
 
                     // ✅ CHECKPOINT: Verify the selected package has UsrALPrintLabel=true before CreatePrintContext
@@ -325,7 +336,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                         object ucc128 = _graph.Packages.Cache.GetValue(verifyPackage, "UsrTCUCC128");
                         object carton = _graph.Packages.Cache.GetValue(verifyPackage, "UsrCartonNbr");
 
-                        PXTrace.WriteInformation(
+                        WriteDiagnostic(
                             "[CHECKBOX-VERIFY] After save: LineNbr={0}, UsrALPrintLabel={1}, UsrALNbrOfCopies={2}, UsrALLabelQty={3}, UsrTCUCC128={4}, UsrCartonNbr={5}",
                             verifyPackage.LineNbr,
                             flag,
@@ -336,22 +347,26 @@ namespace AA.Objects.AL.Integration.PerPackage
                     }
                     else
                     {
-                        PXTrace.WriteInformation("[CHECKBOX-VERIFY] ⚠️ WARNING: verifyPackage is null after selecting LineNbr={0}", selectedPackageLineNbr);
+                        WriteDiagnostic("[CHECKBOX-VERIFY] ⚠️ WARNING: verifyPackage is null after selecting LineNbr={0}", selectedPackageLineNbr);
                     }
 
-                    AcuLabelContext printContext = AcuLabelContext.CreatePrintContext(
+                    object selectedLabelRow = verifyPackage ?? packageToVerify;
+
+                    AcuLabelContext printContext = AcuLabelContext.CreateSingleRowPrintContext(
                         _graph.GetType(),
                         shipment,
+                        selectedLabelRow,
                         modelId,
-                        false,
-                        adapter);
+                        shipment.CustomerID);
 
                     if (printContext == null)
-                        throw new PXException("CreatePrintContext returned null.");
+                        throw new PXException("CreateSingleRowPrintContext returned null.");
+
+                    printContext.Adapter = adapter;
 
                     string modelName = printContext.Model != null ? printContext.Model.Name : "<null>";
                     string printerName = printContext.Printer != null ? printContext.Printer.Name : "<null>";
-                    PXTrace.WriteInformation("[CHECKBOX] ✅ CreatePrintContext succeeded. Model={0}, Printer={1}", 
+                    WriteDiagnostic("[CHECKBOX] ✅ CreateSingleRowPrintContext succeeded. Model={0}, Printer={1}", 
                         modelName, printerName);
 
                     if (printContext.Model == null)
@@ -366,7 +381,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                             "No printer is configured for this model. Please configure a printer for the model or printer override as needed.");
                     }
 
-                    PXTrace.WriteInformation(
+                    WriteDiagnostic(
                         $"[CHECKBOX] ✅ Print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
 
                     // ✅ Call PrintLabels while filter scope is active AND checkbox is set
@@ -374,37 +389,37 @@ namespace AA.Objects.AL.Integration.PerPackage
                     // Checkbox ensures Asgard's NbCopies logic sees the row as eligible
                     try
                     {
-                        PXTrace.WriteInformation("[CHECKBOX] ✅ Calling PrintLabels...");
+                        WriteDiagnostic("[CHECKBOX] ✅ Calling PrintLabels...");
                         PrintResults results = _labelGenerator.PrintLabels(printContext);
                         
                         if (results == null)
                             throw new PXException("PrintLabels returned null.");
 
-                        PXTrace.WriteInformation("[CHECKBOX] ✅ PrintLabels returned NbLabels={0} for package {1}", results.NbLabels, selectedPackageLineNbr);
+                        PXTrace.WriteInformation("[ASGARD-PRINT] Complete: Labels={0}, Package={1}", results.NbLabels, selectedPackageLineNbr);
                         
                         if (results.NbLabels == 1)
                         {
-                            PXTrace.WriteInformation("[RESULT] ✅ SUCCESS: Single label printed for package line {0}", selectedPackageLineNbr);
+                            WriteDiagnostic("[RESULT] ✅ SUCCESS: Single label printed for package line {0}", selectedPackageLineNbr);
                         }
                         else if (results.NbLabels == 0)
                         {
-                            PXTrace.WriteInformation("[RESULT] ⚠️ WARNING: No labels generated for package line {0}", selectedPackageLineNbr);
+                            WriteDiagnostic("[RESULT] ⚠️ WARNING: No labels generated for package line {0}", selectedPackageLineNbr);
                         }
                         else
                         {
-                            PXTrace.WriteInformation("[RESULT] ⚠️ UNEXPECTED: {0} labels printed (expected 1) for package line {1}", 
+                            WriteDiagnostic("[RESULT] ⚠️ UNEXPECTED: {0} labels printed (expected 1) for package line {1}", 
                                 results.NbLabels, selectedPackageLineNbr);
                         }
 
-                        PXTrace.WriteInformation(
+                        WriteDiagnostic(
                             $"[SERVICE] Print completed: Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}, NbLabels={results.NbLabels}");
 
                         return results;
                     }
                     catch (Exception printEx)
                     {
-                        PXTrace.WriteInformation("[SERVICE] PrintLabels exception: {0}", printEx.GetType().FullName);
-                        PXTrace.WriteInformation("[SERVICE] Exception message: {0}", printEx.Message);
+                        WriteDiagnostic("[SERVICE] PrintLabels exception: {0}", printEx.GetType().FullName);
+                        WriteDiagnostic("[SERVICE] Exception message: {0}", printEx.Message);
                         throw;
                     }
                 }  // End of ALPackagesFilterScope using block
@@ -413,16 +428,16 @@ namespace AA.Objects.AL.Integration.PerPackage
             {
                 // ✅ CRITICAL: Clear all package print flags in finally block
                 // This runs even if printing fails, ensuring clean state
-                PXTrace.WriteInformation("[CHECKBOX] Finally block: Clearing all package print flags...");
+                WriteDiagnostic("[CHECKBOX] Finally block: Clearing all package print flags...");
                 try
                 {
                     ClearAllPackagePrintFlags(shipment.ShipmentNbr);
                     _graph.Actions.PressSave();
-                    PXTrace.WriteInformation("[CHECKBOX] ✅ Finally: All package flags cleared and saved");
+                    WriteDiagnostic("[CHECKBOX] ✅ Finally: All package flags cleared and saved");
                 }
                 catch (Exception cleanupEx)
                 {
-                    PXTrace.WriteInformation("[CHECKBOX] ⚠️ Error during finally cleanup: {0}", cleanupEx.Message);
+                    PXTrace.WriteWarning("[ASGARD-PRINT] Package flag cleanup failed: {0}", cleanupEx.Message);
                     // Don't re-throw from finally - let the original exception propagate if there was one
                 }
             }
@@ -461,7 +476,7 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 if (targetMethod == null)
                 {
-                    PXTrace.WriteInformation("[PROOF] Could not find generic AsgardUtils.FindExtension<T>(row)");
+                    WriteDiagnostic("[PROOF] Could not find generic AsgardUtils.FindExtension<T>(row)");
                     return null;
                 }
 
@@ -473,7 +488,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             }
             catch (Exception ex)
             {
-                PXTrace.WriteInformation("[PROOF] TryFindExtension error: {0}", ex.Message);
+                WriteDiagnostic("[PROOF] TryFindExtension error: {0}", ex.Message);
                 return null;
             }
         }
@@ -513,8 +528,8 @@ namespace AA.Objects.AL.Integration.PerPackage
                 Type nbCopiesHelperType = Type.GetType("AA.Objects.AL.NbCopiesHelper, AA.Objects.AL.Basic");
                 if (nbCopiesHelperType == null)
                 {
-                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] ⚠️ NbCopiesHelper type not found via reflection");
-                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] Defaulting to TRUE (allow printing) - native path will decide");
+                    WriteDiagnostic("[DIAG-GATE-PRINT] ⚠️ NbCopiesHelper type not found via reflection");
+                    WriteDiagnostic("[DIAG-GATE-PRINT] Defaulting to TRUE (allow printing) - native path will decide");
                     return true;  // ← ALLOW PRINTING ON REFLECTION FAILURE
                 }
 
@@ -524,8 +539,8 @@ namespace AA.Objects.AL.Integration.PerPackage
                 
                 if (method == null)
                 {
-                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] ⚠️ CheckLineDoPrint method not found on NbCopiesHelper");
-                    PXTrace.WriteInformation("[DIAG-GATE-PRINT] Defaulting to TRUE (allow printing) - native path will decide");
+                    WriteDiagnostic("[DIAG-GATE-PRINT] ⚠️ CheckLineDoPrint method not found on NbCopiesHelper");
+                    WriteDiagnostic("[DIAG-GATE-PRINT] Defaulting to TRUE (allow printing) - native path will decide");
                     return true;  // ← ALLOW PRINTING ON REFLECTION FAILURE
                 }
 
@@ -533,25 +548,25 @@ namespace AA.Objects.AL.Integration.PerPackage
                 object result = method.Invoke(null, new[] { labelContext });
                 bool methodResult = (bool)(result ?? false);
                 
-                PXTrace.WriteInformation("[DIAG-GATE-PRINT] ✓ Native CheckLineDoPrint invoked successfully: {0}", methodResult);
+                WriteDiagnostic("[DIAG-GATE-PRINT] ✓ Native CheckLineDoPrint invoked successfully: {0}", methodResult);
                 return methodResult;
             }
             catch (TargetInvocationException tiEx)
             {
                 // Unwrap the inner exception from reflection invocation
-                PXTrace.WriteInformation("[DIAG-GATE-PRINT] ⚠️ CheckLineDoPrint threw exception during invocation");
-                PXTrace.WriteInformation("[DIAG-GATE-PRINT] Inner exception type: {0}", 
+                WriteDiagnostic("[DIAG-GATE-PRINT] ⚠️ CheckLineDoPrint threw exception during invocation");
+                WriteDiagnostic("[DIAG-GATE-PRINT] Inner exception type: {0}", 
                     tiEx.InnerException?.GetType().FullName ?? "null");
-                PXTrace.WriteInformation("[DIAG-GATE-PRINT] Inner exception message: {0}", 
+                WriteDiagnostic("[DIAG-GATE-PRINT] Inner exception message: {0}", 
                     tiEx.InnerException?.Message ?? "null");
-                PXTrace.WriteInformation("[DIAG-GATE-PRINT] Defaulting to TRUE (allow printing)");
+                WriteDiagnostic("[DIAG-GATE-PRINT] Defaulting to TRUE (allow printing)");
                 return true;  // ← ALLOW PRINTING ON INVOCATION ERROR
             }
             catch (Exception ex)
             {
-                PXTrace.WriteInformation("[DIAG-GATE-PRINT] ⚠️ Error invoking CheckLineDoPrint: {0}", ex.GetType().FullName);
-                PXTrace.WriteInformation("[DIAG-GATE-PRINT] Exception message: {0}", ex.Message);
-                PXTrace.WriteInformation("[DIAG-GATE-PRINT] Defaulting to TRUE (allow printing) - native path will decide");
+                WriteDiagnostic("[DIAG-GATE-PRINT] ⚠️ Error invoking CheckLineDoPrint: {0}", ex.GetType().FullName);
+                WriteDiagnostic("[DIAG-GATE-PRINT] Exception message: {0}", ex.Message);
+                WriteDiagnostic("[DIAG-GATE-PRINT] Defaulting to TRUE (allow printing) - native path will decide");
                 return true;  // ← ALLOW PRINTING ON REFLECTION ERROR
             }
         }
@@ -566,8 +581,8 @@ namespace AA.Objects.AL.Integration.PerPackage
         /// 
         /// This method:
         /// 1. Queries all active ALModel records for SO302000 screen
-        /// 2. Filters for package-based models (ALPackages, ALiStarPackages)
-        /// 3. For each model, evaluates its PrintRuleID or FilterRuleID using NewScribanUtils
+        /// 2. Filters for package-based models (Packages, ALPackages, ALiStarPackages)
+        /// 3. Evaluates FilterRuleID and then PrintRuleID using Asgard RuleUtils
         /// 4. Returns exactly one matching model, or throws clear errors for:
         ///    - 0 matches: No model applies to this customer
         ///    - 2+ matches: Multiple models match; need to adjust rules
@@ -578,9 +593,248 @@ namespace AA.Objects.AL.Integration.PerPackage
         /// - Hardcoding bypasses Asgard's rule system, creating maintenance burden
         /// - Using Asgard rules keeps label selection centralized and consistent
         /// </summary>
+        public virtual Guid? ResolveModelIdByAsgardRules(
+            SOShipment shipment,
+            SOPackageDetailEx selectedPackage)
+        {
+            PXTrace.WriteInformation(
+                "[MODEL-RESOLVE-NATIVE] Shipment={0}, Package={1}",
+                shipment?.ShipmentNbr ?? "<null>",
+                selectedPackage?.LineNbr);
+
+            ValidateShipmentForAsgardPrint(shipment);
+
+            if (selectedPackage == null)
+                throw new PXException("A selected package is required to resolve the Asgard label model.");
+
+            if (!string.Equals(
+                shipment.ShipmentNbr,
+                selectedPackage.ShipmentNbr,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                throw new PXException(
+                    "Selected package {0} does not belong to shipment {1}.",
+                    selectedPackage.LineNbr,
+                    shipment.ShipmentNbr);
+            }
+
+            _graph.Document.Current = shipment;
+            _graph.Packages.Current = selectedPackage;
+
+            List<ALModel> activeShipmentModels = PXSelect<
+                ALModel,
+                Where<
+                    ALModel.active, Equal<True>,
+                    And<ALModel.screenID, Equal<Required<ALModel.screenID>>>>>
+                .Select(_graph, "SO302000")
+                .RowCast<ALModel>()
+                .ToList();
+
+            foreach (ALModel model in activeShipmentModels)
+            {
+                bool packageBased = IsPackageBasedModel(model);
+
+                WriteDiagnostic(
+                    "[MODEL-DIAG-NATIVE] ModelID={0}, Name={1}, Active={2}, ScreenID={3}, " +
+                    "BasedOnView='{4}', FilterRuleID={5}, ReverseFilter={6}, " +
+                    "PrintRuleID={7}, ReversePrint={8}, PackageBased={9}",
+                    model.LabelID,
+                    model.Name ?? "<null>",
+                    model.Active,
+                    model.ScreenID ?? "<null>",
+                    model.BasedOnView ?? "<null>",
+                    model.FilterRuleID,
+                    model.ReverseFilter,
+                    model.PrintRuleID,
+                    model.ReversePrint,
+                    packageBased);
+
+                if (!packageBased)
+                {
+                    WriteDiagnostic(
+                        "[MODEL-DIAG-NATIVE] Model '{0}' EXCLUDED: BasedOnView '{1}' is not " +
+                        "Packages, ALPackages, or ALiStarPackages.",
+                        model.Name ?? "<null>",
+                        model.BasedOnView ?? "<null>");
+                }
+            }
+
+            List<ALModel> packageModels = activeShipmentModels
+                .Where(IsPackageBasedModel)
+                .ToList();
+
+            PXTrace.WriteInformation(
+                "[MODEL-RESOLVE-NATIVE] Found {0} active package-based models for SO302000",
+                packageModels.Count);
+
+            if (packageModels.Count == 0)
+            {
+                throw new PXException(
+                    "No active Asgard package label models were found for SO302000 using " +
+                    "Packages, ALPackages, or ALiStarPackages.");
+            }
+
+            List<ALModel> matchingModels = new List<ALModel>();
+
+            using (ALPackagesFilterScope.Activate(
+                shipment.ShipmentNbr,
+                new int?[] { selectedPackage.LineNbr }))
+            {
+                foreach (ALModel model in packageModels)
+                {
+                    try
+                    {
+                        WriteDiagnostic(
+                            "[RULE-EVAL-NATIVE] Model={0}, ModelID={1}, Package={2}",
+                            model.Name,
+                            model.LabelID,
+                            selectedPackage.LineNbr);
+
+                        // Construct the same native context used for a one-row print. This
+                        // resolves current-user printer eligibility before the model matches.
+                        AcuLabelContext ruleContext = AcuLabelContext.CreateSingleRowPrintContext(
+                            _graph.GetType(),
+                            shipment,
+                            selectedPackage,
+                            model.LabelID,
+                            shipment.CustomerID);
+
+                        PXCache packageCache = ruleContext.Graph.Caches[typeof(SOPackageDetail)];
+                        packageCache.Current = selectedPackage;
+
+                        bool filterMatched = EvaluateNativeModelRule(
+                            ruleContext,
+                            model,
+                            model.FilterRuleID,
+                            model.ReverseFilter == true,
+                            "FilterRuleID");
+
+                        if (!filterMatched)
+                        {
+                            PXTrace.WriteInformation(
+                                "[RULE-MATCH-NATIVE] Model {0} EXCLUDED by FilterRuleID",
+                                model.Name);
+                            continue;
+                        }
+
+                        bool printMatched = EvaluateNativeModelRule(
+                            ruleContext,
+                            model,
+                            model.PrintRuleID,
+                            model.ReversePrint == true,
+                            "PrintRuleID");
+
+                        if (!printMatched)
+                        {
+                            PXTrace.WriteInformation(
+                                "[RULE-MATCH-NATIVE] Model {0} EXCLUDED by PrintRuleID",
+                                model.Name);
+                            continue;
+                        }
+
+                        matchingModels.Add(model);
+                        PXTrace.WriteInformation(
+                            "[RULE-MATCH-NATIVE] Model {0} INCLUDED; Printer={1}",
+                            model.Name,
+                            ruleContext.Printer?.Name ?? "<null>");
+                    }
+                    catch (Exception ex)
+                    {
+                        PXTrace.WriteWarning(
+                            "[MODEL-DIAG-NATIVE] Model '{0}' EXCLUDED while creating/evaluating " +
+                            "the native context: {1}",
+                            model.Name,
+                            ex.Message);
+                    }
+                }
+            }
+
+            PXTrace.WriteInformation(
+                "[MODEL-SELECT-NATIVE] Total matching models: {0}",
+                matchingModels.Count);
+
+            if (matchingModels.Count == 0)
+            {
+                throw new PXException(
+                    "No Asgard package label model matched shipment {0}, package {1}. " +
+                    "Candidates: {2}.",
+                    shipment.ShipmentNbr,
+                    selectedPackage.LineNbr,
+                    string.Join(", ", packageModels.Select(m => m.Name)));
+            }
+
+            if (matchingModels.Count > 1)
+            {
+                throw new PXException(
+                    "Multiple Asgard package label models matched shipment {0}, package {1}: {2}.",
+                    shipment.ShipmentNbr,
+                    selectedPackage.LineNbr,
+                    string.Join(", ", matchingModels.Select(m => m.Name)));
+            }
+
+            ALModel selectedModel = matchingModels[0];
+            PXTrace.WriteInformation(
+                "[MODEL-SELECT-NATIVE] Selected model {0} (ID: {1})",
+                selectedModel.Name,
+                selectedModel.LabelID);
+
+            return selectedModel.LabelID;
+        }
+
+        private static bool IsPackageBasedModel(ALModel model)
+        {
+            if (model == null)
+                return false;
+
+            return string.Equals(model.BasedOnView, "Packages", StringComparison.Ordinal)
+                || string.Equals(model.BasedOnView, "ALPackages", StringComparison.Ordinal)
+                || string.Equals(model.BasedOnView, "ALiStarPackages", StringComparison.Ordinal);
+        }
+
+        private bool EvaluateNativeModelRule(
+            AcuLabelContext context,
+            ALModel model,
+            Guid? ruleId,
+            bool reverse,
+            string ruleField)
+        {
+            ALRule rule = LoadRuleById(ruleId);
+
+            if (ruleId != null && ruleId != Guid.Empty && rule == null)
+            {
+                throw new PXException(
+                    "Rule {0} referenced by {1} on model '{2}' could not be loaded.",
+                    ruleId,
+                    ruleField,
+                    model.Name);
+            }
+
+            WriteDiagnostic(
+                "[RULE-EVAL-NATIVE] Model={0}, Stage={1}, RuleID={2}, RuleName={3}, " +
+                "Active={4}, Reverse={5}, Expression={6}",
+                model.Name,
+                ruleField,
+                ruleId,
+                rule?.Name ?? "<none>",
+                rule?.Active,
+                reverse,
+                rule?.Expression ?? "<none>");
+
+            bool matched = RuleUtils.EvalRule(context, rule, reverse);
+
+            WriteDiagnostic(
+                "[RULE-EVAL-NATIVE] Model={0}, Stage={1}, Result={2}",
+                model.Name,
+                ruleField,
+                matched);
+
+            return matched;
+        }
+
+        [Obsolete("Use the package-aware overload so native print rules have a selected detail row.")]
         public virtual Guid? ResolveModelIdByAsgardRules(SOShipment shipment)
         {
-            PXTrace.WriteInformation("[MODEL-RESOLVE] ResolveModelIdByAsgardRules called for shipment: {0}", 
+            WriteDiagnostic("[MODEL-RESOLVE] ResolveModelIdByAsgardRules called for shipment: {0}", 
                 shipment?.ShipmentNbr ?? "null");
 
             ValidateShipmentForAsgardPrint(shipment);
@@ -590,7 +844,7 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             string shipmentNbr = shipment.ShipmentNbr;
 
-            PXTrace.WriteInformation("[MODEL-RESOLVE] Shipment={0}", shipmentNbr);
+            WriteDiagnostic("[MODEL-RESOLVE] Shipment={0}", shipmentNbr);
 
             // TEMPORARY DIAGNOSTICS ONLY:
             // Inspect every active SO302000 model without changing model eligibility.
@@ -603,7 +857,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                 .RowCast<ALModel>()
                 .ToList();
 
-            PXTrace.WriteInformation(
+            WriteDiagnostic(
                 "[MODEL-DIAG] Found {0} active models for SO302000 before BasedOnView filtering",
                 allActiveShipmentModels.Count);
 
@@ -613,7 +867,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     model.BasedOnView == "ALPackages"
                     || model.BasedOnView == "ALiStarPackages";
 
-                PXTrace.WriteInformation(
+                WriteDiagnostic(
                     "[MODEL-DIAG] ModelID={0}, Name={1}, Active={2}, ScreenID={3}, " +
                     "BasedOnView='{4}', FilterRuleID={5}, PrintRuleID={6}, " +
                     "CurrentResolverEligible={7}",
@@ -631,14 +885,14 @@ namespace AA.Objects.AL.Integration.PerPackage
                     "Packages",
                     StringComparison.OrdinalIgnoreCase))
                 {
-                    PXTrace.WriteInformation(
+                    WriteDiagnostic(
                         "[MODEL-DIAG] Model '{0}' uses native Packages view. " +
                         "DIAGNOSTIC ONLY - it remains excluded from model resolution.",
                         model.Name ?? "<null>");
                 }
                 else if (!currentlyEligible)
                 {
-                    PXTrace.WriteInformation(
+                    WriteDiagnostic(
                         "[MODEL-DIAG] Model '{0}' is currently excluded: " +
                         "BasedOnView '{1}' is not exactly ALPackages or ALiStarPackages.",
                         model.Name ?? "<null>",
@@ -658,7 +912,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                 .Where(m => m.BasedOnView == "ALPackages" || m.BasedOnView == "ALiStarPackages")
                 .ToList();
 
-            PXTrace.WriteInformation("[MODEL-RESOLVE] Found {0} package-based models for SO302000", packageModels.Count);
+            WriteDiagnostic("[MODEL-RESOLVE] Found {0} package-based models for SO302000", packageModels.Count);
 
             if (packageModels.Count == 0)
             {
@@ -674,7 +928,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             {
                 try
                 {
-                    PXTrace.WriteInformation("[RULE-EVAL] Evaluating model: {0} (ID: {1})", 
+                    WriteDiagnostic("[RULE-EVAL] Evaluating model: {0} (ID: {1})", 
                         model.Name, model.LabelID);
 
                     // ✅ Prefer PrintRuleID; fall back to FilterRuleID
@@ -682,7 +936,7 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                     if (ruleIdToEvaluate == null || ruleIdToEvaluate == Guid.Empty)
                     {
-                        PXTrace.WriteInformation("[RULE-EVAL] Model {0} has no PrintRuleID or FilterRuleID - SKIP", 
+                        WriteDiagnostic("[RULE-EVAL] Model {0} has no PrintRuleID or FilterRuleID - SKIP", 
                             model.Name);
                         continue;
                     }
@@ -691,7 +945,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                         ? "PrintRuleID" 
                         : "FilterRuleID";
 
-                    PXTrace.WriteInformation("[RULE-EVAL] Using {0}: {1}", ruleSource, ruleIdToEvaluate);
+                    WriteDiagnostic("[RULE-EVAL] Using {0}: {1}", ruleSource, ruleIdToEvaluate);
 
                     // ✅ Load the rule record
                     ALRule rule = LoadRuleById(ruleIdToEvaluate);
@@ -703,8 +957,8 @@ namespace AA.Objects.AL.Integration.PerPackage
                             ruleIdToEvaluate, model.Name);
                     }
 
-                    PXTrace.WriteInformation("[RULE-EVAL] Rule name: {0}", rule.Name);
-                    PXTrace.WriteInformation("[RULE-EVAL] Rule expression: {0}", rule.Expression ?? "null");
+                    WriteDiagnostic("[RULE-EVAL] Rule name: {0}", rule.Name);
+                    WriteDiagnostic("[RULE-EVAL] Rule expression: {0}", rule.Expression ?? "null");
 
                     if (string.IsNullOrWhiteSpace(rule.Expression))
                     {
@@ -716,7 +970,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     // ✅ Check if rule is active before evaluating
                     if (rule.Active != true)
                     {
-                        PXTrace.WriteInformation("[RULE-EVAL] Rule {0} is inactive - SKIP", rule.Name);
+                        WriteDiagnostic("[RULE-EVAL] Rule {0} is inactive - SKIP", rule.Name);
                         continue;
                     }
 
@@ -733,17 +987,17 @@ namespace AA.Objects.AL.Integration.PerPackage
                     // ✅ Evaluate the rule expression using CONFIRMED NewScribanUtils method
                     bool matched = EvaluateRuleExpression(scribanContext, rule.Expression, rule.Name, model.Name);
 
-                    PXTrace.WriteInformation("[RULE-MATCH] Model {0}: rule evaluated to {1}", 
+                    WriteDiagnostic("[RULE-MATCH] Model {0}: rule evaluated to {1}", 
                         model.Name, matched);
 
                     if (matched)
                     {
                         matchingModels.Add(model);
-                        PXTrace.WriteInformation("[RULE-MATCH] ✅ Model {0} MATCHED", model.Name);
+                        WriteDiagnostic("[RULE-MATCH] ✅ Model {0} MATCHED", model.Name);
                     }
                     else
                     {
-                        PXTrace.WriteInformation("[RULE-MATCH] ⊘ Model {0} did not match", model.Name);
+                        WriteDiagnostic("[RULE-MATCH] ⊘ Model {0} did not match", model.Name);
                     }
                 }
                 catch (PXException)
@@ -761,7 +1015,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             }
 
             // ✅ Check matching models count
-            PXTrace.WriteInformation("[MODEL-SELECT] Total matching models: {0}", matchingModels.Count);
+            WriteDiagnostic("[MODEL-SELECT] Total matching models: {0}", matchingModels.Count);
 
             if (matchingModels.Count == 0)
             {
@@ -786,7 +1040,7 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             // ✅ Exactly one match
             Guid? selectedModelId = matchingModels[0].LabelID;
-            PXTrace.WriteInformation("[MODEL-SELECT] ✅ Selected model: {0} (ID: {1})", 
+            WriteDiagnostic("[MODEL-SELECT] ✅ Selected model: {0} (ID: {1})", 
                 matchingModels[0].Name, selectedModelId);
 
             return selectedModelId;
@@ -810,14 +1064,14 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                 if (rule == null)
                 {
-                    PXTrace.WriteInformation("[RULE-LOAD] Rule {0} not found in database", ruleId);
+                    WriteDiagnostic("[RULE-LOAD] Rule {0} not found in database", ruleId);
                 }
 
                 return rule;
             }
             catch (Exception ex)
             {
-                PXTrace.WriteInformation("[RULE-LOAD] Error loading rule {0}: {1}", ruleId, ex.Message);
+                WriteDiagnostic("[RULE-LOAD] Error loading rule {0}: {1}", ruleId, ex.Message);
                 throw new PXException("Error loading rule {0} from database: {1}", ruleId, ex.Message);
             }
         }
@@ -837,7 +1091,7 @@ namespace AA.Objects.AL.Integration.PerPackage
         {
             try
             {
-                PXTrace.WriteInformation("[CONTEXT] Building Scriban context for shipment {0}", 
+                WriteDiagnostic("[CONTEXT] Building Scriban context for shipment {0}", 
                     shipment?.ShipmentNbr ?? "null");
 
                 // ✅ Ensure Document.Current is set to the shipment
@@ -857,7 +1111,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     throw new PXException("ScribanUtils.CreateContext returned null");
                 }
 
-                PXTrace.WriteInformation("[CONTEXT] ✅ Scriban context built successfully");
+                WriteDiagnostic("[CONTEXT] ✅ Scriban context built successfully");
 
                 // ✅ DIAGNOSTIC PROBE (non-blocking)
                 // Attempt to resolve Document.CustomerID.AcctName for diagnostic purposes
@@ -871,17 +1125,17 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                     if (probe == null)
                     {
-                        PXTrace.WriteInformation("[CONTEXT-PROBE] Document.CustomerID.AcctName evaluated to null - rule evaluation may depend on different context");
+                        WriteDiagnostic("[CONTEXT-PROBE] Document.CustomerID.AcctName evaluated to null - rule evaluation may depend on different context");
                     }
                     else
                     {
-                        PXTrace.WriteInformation("[CONTEXT-PROBE] Document.CustomerID.AcctName resolved successfully: {0}", probe);
+                        WriteDiagnostic("[CONTEXT-PROBE] Document.CustomerID.AcctName resolved successfully: {0}", probe);
                     }
                 }
                 catch (Exception probeEx)
                 {
-                    PXTrace.WriteInformation("[CONTEXT-PROBE] Diagnostic probe encountered error (non-blocking): {0}", probeEx.Message);
-                    PXTrace.WriteInformation("[CONTEXT-PROBE] Continuing - actual rule evaluation will determine if Document context is sufficient");
+                    WriteDiagnostic("[CONTEXT-PROBE] Diagnostic probe encountered error (non-blocking): {0}", probeEx.Message);
+                    WriteDiagnostic("[CONTEXT-PROBE] Continuing - actual rule evaluation will determine if Document context is sufficient");
                 }
 
                 return scribanContext;
@@ -892,7 +1146,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             }
             catch (Exception ex)
             {
-                PXTrace.WriteInformation("[CONTEXT] ⚠️ Error building Scriban context: {0}", ex.Message);
+                WriteDiagnostic("[CONTEXT] ⚠️ Error building Scriban context: {0}", ex.Message);
                 throw new PXException("Error building Scriban context: {0}", ex.Message);
             }
         }
@@ -923,15 +1177,15 @@ namespace AA.Objects.AL.Integration.PerPackage
                     throw new PXException("Rule expression is empty");
                 }
 
-                PXTrace.WriteInformation("[EVAL-EXPR] Evaluating rule '{0}' for model '{1}'", ruleName, modelName);
-                PXTrace.WriteInformation("[EVAL-EXPR] Expression: {0}", expression);
+                WriteDiagnostic("[EVAL-EXPR] Evaluating rule '{0}' for model '{1}'", ruleName, modelName);
+                WriteDiagnostic("[EVAL-EXPR] Expression: {0}", expression);
 
                 // ✅ Use CONFIRMED NewScribanUtils.EvalExpr<bool> method signature
                 // NewScribanUtils.EvalExpr<T>(TemplateContext scribanContext, string scribanExpr, T defaultValue)
                 // Default value (false) ensures safe handling if evaluation returns null/empty
                 bool result = NewScribanUtils.EvalExpr<bool>(scribanContext, expression, false);
 
-                PXTrace.WriteInformation("[EVAL-EXPR] Expression evaluated to: {0}", result);
+                WriteDiagnostic("[EVAL-EXPR] Expression evaluated to: {0}", result);
                 return result;
             }
             catch (PXException)
@@ -941,9 +1195,9 @@ namespace AA.Objects.AL.Integration.PerPackage
             }
             catch (Exception ex)
             {
-                PXTrace.WriteInformation("[EVAL-EXPR] ⚠️ Error evaluating rule '{0}': {1}", ruleName, ex.Message);
-                PXTrace.WriteInformation("[EVAL-EXPR] Exception type: {0}", ex.GetType().FullName);
-                PXTrace.WriteInformation("[EVAL-EXPR] Stack trace: {0}", ex.StackTrace);
+                WriteDiagnostic("[EVAL-EXPR] ⚠️ Error evaluating rule '{0}': {1}", ruleName, ex.Message);
+                WriteDiagnostic("[EVAL-EXPR] Exception type: {0}", ex.GetType().FullName);
+                WriteDiagnostic("[EVAL-EXPR] Stack trace: {0}", ex.StackTrace);
 
                 string message = string.Format(
                     "Error evaluating rule '{0}' used by model '{1}'. Expression: '{2}'. Error: {3}",
