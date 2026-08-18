@@ -592,6 +592,60 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             PXTrace.WriteInformation("[MODEL-RESOLVE] Shipment={0}", shipmentNbr);
 
+            // TEMPORARY DIAGNOSTICS ONLY:
+            // Inspect every active SO302000 model without changing model eligibility.
+            List<ALModel> allActiveShipmentModels = PXSelect<
+                ALModel,
+                Where<
+                    ALModel.active, Equal<True>,
+                    And<ALModel.screenID, Equal<Required<ALModel.screenID>>>>>
+                .Select(_graph, "SO302000")
+                .RowCast<ALModel>()
+                .ToList();
+
+            PXTrace.WriteInformation(
+                "[MODEL-DIAG] Found {0} active models for SO302000 before BasedOnView filtering",
+                allActiveShipmentModels.Count);
+
+            foreach (ALModel model in allActiveShipmentModels)
+            {
+                bool currentlyEligible =
+                    model.BasedOnView == "ALPackages"
+                    || model.BasedOnView == "ALiStarPackages";
+
+                PXTrace.WriteInformation(
+                    "[MODEL-DIAG] ModelID={0}, Name={1}, Active={2}, ScreenID={3}, " +
+                    "BasedOnView='{4}', FilterRuleID={5}, PrintRuleID={6}, " +
+                    "CurrentResolverEligible={7}",
+                    model.LabelID,
+                    model.Name ?? "<null>",
+                    model.Active,
+                    model.ScreenID ?? "<null>",
+                    model.BasedOnView ?? "<null>",
+                    model.FilterRuleID,
+                    model.PrintRuleID,
+                    currentlyEligible);
+
+                if (string.Equals(
+                    model.BasedOnView,
+                    "Packages",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    PXTrace.WriteInformation(
+                        "[MODEL-DIAG] Model '{0}' uses native Packages view. " +
+                        "DIAGNOSTIC ONLY - it remains excluded from model resolution.",
+                        model.Name ?? "<null>");
+                }
+                else if (!currentlyEligible)
+                {
+                    PXTrace.WriteInformation(
+                        "[MODEL-DIAG] Model '{0}' is currently excluded: " +
+                        "BasedOnView '{1}' is not exactly ALPackages or ALiStarPackages.",
+                        model.Name ?? "<null>",
+                        model.BasedOnView ?? "<null>");
+                }
+            }
+
             // ✅ Query all active ALModel records for SO302000 (Shipments screen)
             // Filter for package-based models only (ALPackages, ALiStarPackages) in LINQ
             List<ALModel> packageModels = PXSelect<
