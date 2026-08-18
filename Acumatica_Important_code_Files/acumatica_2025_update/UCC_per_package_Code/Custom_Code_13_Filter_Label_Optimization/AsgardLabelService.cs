@@ -352,21 +352,12 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                     object selectedLabelRow = verifyPackage ?? packageToVerify;
 
-                    // Adapter is init-only in the current Asgard build, so construct the
-                    // same single-row context shape with Adapter in the initializer.
-                    AcuLabelContext printContext = new AcuLabelContext(
+                    AcuLabelContext printContext = AcuLabelContext.CreateSingleRowPrintContext(
                         _graph.GetType(),
                         shipment,
+                        selectedLabelRow,
                         modelId,
-                        false,
-                        false)
-                    {
-                        IsSilent = true,
-                        SingleRow = selectedLabelRow,
-                        IsAlwaysPrint = true,
-                        BAccountID = shipment.CustomerID,
-                        Adapter = adapter
-                    };
+                        shipment.CustomerID);
 
                     if (printContext == null)
                         throw new PXException("CreateSingleRowPrintContext returned null.");
