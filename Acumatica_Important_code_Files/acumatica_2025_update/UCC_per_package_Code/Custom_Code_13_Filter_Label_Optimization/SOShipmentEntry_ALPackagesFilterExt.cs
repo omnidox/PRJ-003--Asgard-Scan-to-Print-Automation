@@ -6,7 +6,8 @@ using PX.Objects.SO;
 namespace AA.Objects.AL.Integration.PerPackage
 {
     /// <summary>
-    /// Generic Asgard view filter extension that intercepts both ALPackages and ALiStarPackages views.
+    /// Generic Asgard view filter extension that intercepts Packages, ALPackages,
+    /// and ALiStarPackages views.
     /// 
     /// CRITICAL: This extension must filter the ACTUAL view that the Asgard model uses (BasedOnView).
     /// For models based on ALiStarPackages (a joined view with multiple tables), we must:
@@ -41,7 +42,10 @@ namespace AA.Objects.AL.Integration.PerPackage
         {
             base.Initialize();
 
-            // ✅ CRITICAL FIX: Filter BOTH views that Asgard models might use
+            // Filter every package view currently used by an Asgard shipment model.
+            // The delegate returns all rows unless ALPackagesFilterScope is active,
+            // so the normal shipment screen continues to use the complete Packages view.
+            FilterViewIfExists("Packages");
             FilterViewIfExists("ALPackages");
             FilterViewIfExists("ALiStarPackages");
         }
