@@ -313,10 +313,9 @@ namespace AA.Objects.AL.Integration.PerPackage
                 {
                     WriteDiagnostic("[CHECKBOX] ✅ ALPackagesFilterScope activated for package line {0}", selectedPackageLineNbr);
 
-                    // Use Asgard's native single-row context so the model's BasedOnView is not
-                    // enumerated. This guarantees that only the requested package is printed,
-                    // including for models based on the native Packages view.
-                    WriteDiagnostic("[CHECKBOX] ✅ Calling CreateSingleRowPrintContext with BasedOnView={0}, ModelID={1}", 
+                    // Use Asgard's native view-enumerating context. The temporary
+                    // UsrALPrintLabel flag determines which package actually prints.
+                    WriteDiagnostic("[CHECKBOX] ✅ Calling CreatePrintContext with BasedOnView={0}, ModelID={1}", 
                         basedOnViewName, modelId);
 
                     // ✅ CHECKPOINT: Verify the selected package has UsrALPrintLabel=true before CreatePrintContext
@@ -356,29 +355,21 @@ namespace AA.Objects.AL.Integration.PerPackage
                         "UsrTCUCC128");
                     string selectedUccForTrace = selectedUccValue?.ToString() ?? "<null>";
 
-                    // A bare DAC is converted by Asgard through a reflective List<object>
-                    // path that can produce a PXResult with no main row. Supplying an
-                    // already typed result set bypasses that conversion and gives
-                    // PXResult.UnwrapMain a valid SOPackageDetailEx during printing.
-                    PXResultset<SOPackageDetailEx> selectedLabelRows =
-                        new PXResultset<SOPackageDetailEx>
-                        {
-                            new PXResult<SOPackageDetailEx>(selectedLabelRow)
-                        };
-
-                    AcuLabelContext printContext = AcuLabelContext.CreateSingleRowPrintContext(
+                    // Follow Asgard's working native action path: enumerate the model view
+                    // and let CheckLineDoPrint select the one package whose flag was set above.
+                    AcuLabelContext printContext = AcuLabelContext.CreatePrintContext(
                         _graph.GetType(),
                         shipment,
-                        selectedLabelRows,
                         modelId,
-                        shipment.CustomerID);
+                        false,
+                        adapter);
 
                     if (printContext == null)
-                        throw new PXException("CreateSingleRowPrintContext returned null.");
+                        throw new PXException("CreatePrintContext returned null.");
 
                     string modelName = printContext.Model != null ? printContext.Model.Name : "<null>";
                     string printerName = printContext.Printer != null ? printContext.Printer.Name : "<null>";
-                    WriteDiagnostic("[CHECKBOX] ✅ CreateSingleRowPrintContext succeeded. Model={0}, Printer={1}", 
+                    WriteDiagnostic("[CHECKBOX] ✅ CreatePrintContext succeeded. Model={0}, Printer={1}", 
                         modelName, printerName);
 
                     if (printContext.Model == null)

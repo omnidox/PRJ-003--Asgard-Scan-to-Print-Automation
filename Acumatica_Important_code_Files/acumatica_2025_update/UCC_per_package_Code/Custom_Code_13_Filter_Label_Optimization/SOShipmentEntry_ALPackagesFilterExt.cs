@@ -6,8 +6,8 @@ using PX.Objects.SO;
 namespace AA.Objects.AL.Integration.PerPackage
 {
     /// <summary>
-    /// Generic Asgard view filter extension that intercepts Packages, ALPackages,
-    /// and ALiStarPackages views.
+    /// Generic Asgard view filter extension that intercepts ALPackages and
+    /// ALiStarPackages without replacing Acumatica's editable Packages grid view.
     /// 
     /// CRITICAL: This extension must filter the ACTUAL view that the Asgard model uses (BasedOnView).
     /// For models based on ALiStarPackages (a joined view with multiple tables), we must:
@@ -42,10 +42,8 @@ namespace AA.Objects.AL.Integration.PerPackage
         {
             base.Initialize();
 
-            // Filter every package view currently used by an Asgard shipment model.
-            // The delegate returns all rows unless ALPackagesFilterScope is active,
-            // so the normal shipment screen continues to use the complete Packages view.
-            // FilterViewIfExists("Packages");
+            // Do not replace the native Packages view: constructing it as a read-only
+            // PXView prevents users from changing package-grid checkboxes.
             FilterViewIfExists("ALPackages");
             FilterViewIfExists("ALiStarPackages");
         }
