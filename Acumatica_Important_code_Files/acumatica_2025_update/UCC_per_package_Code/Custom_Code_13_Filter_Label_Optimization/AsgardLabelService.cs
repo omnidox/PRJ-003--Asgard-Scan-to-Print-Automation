@@ -393,6 +393,39 @@ namespace AA.Objects.AL.Integration.PerPackage
                         $"[CHECKBOX] ✅ Print context ready: Model={printContext.Model.Name}, Printer={printContext.Printer.Name}, Shipment={shipment.ShipmentNbr}, Package={selectedPackageLineNbr}");
 
                     // ✅ Call PrintLabels while filter scope is active AND checkbox is set
+                    // Diagnostic only: compare the requested/context package with the first
+                    // row exposed by the model's actual BasedOnView. This determines whether
+                    // an unfiltered native Packages view is redirecting the label to its top row.
+                    string firstPackageFromModelView = "<not available>";
+                    try
+                    {
+                        string modelViewName = printContext.Model.BasedOnView;
+                        if (!string.IsNullOrWhiteSpace(modelViewName)
+                            && printContext.Graph.Views.ContainsKey(modelViewName))
+                        {
+                            PXView modelView = printContext.Graph.Views[modelViewName];
+                            IEnumerable modelRows = modelView.SelectMultiBound(
+                                new object[] { printContext.Row });
+
+                            foreach (object modelRow in modelRows)
+                            {
+                                SOPackageDetail packageFromView =
+                                    PXResult.Unwrap<SOPackageDetail>(modelRow);
+                                firstPackageFromModelView = packageFromView?.LineNbr?.ToString()
+                                    ?? "<row has no package>";
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            firstPackageFromModelView = "<view missing>";
+                        }
+                    }
+                    catch (Exception viewProbeEx)
+                    {
+                        firstPackageFromModelView = "<probe error: " + viewProbeEx.Message + ">";
+                    }
+
                     // Filter ensures Asgard gets only the selected package row
                     // Checkbox ensures Asgard's NbCopies logic sees the row as eligible
                     try
@@ -403,7 +436,15 @@ namespace AA.Objects.AL.Integration.PerPackage
                         if (results == null)
                             throw new PXException("PrintLabels returned null.");
 
-                        PXTrace.WriteInformation("[ASGARD-PRINT] Complete: Labels={0}, Package={1}", results.NbLabels, selectedPackageLineNbr);
+                        PXTrace.WriteInformation(
+                            "[ASGARD-PRINT] Complete: Labels={0}, RequestedPackage={1}, " +
+                            "ContextPackage={2}, Model={3}, View={4}, ViewFirstPackage={5}",
+                            results.NbLabels,
+                            selectedPackageLineNbr,
+                            selectedLabelRow.LineNbr,
+                            printContext.Model.Name,
+                            printContext.Model.BasedOnView ?? "<null>",
+                            firstPackageFromModelView);
                         
                         if (results.NbLabels == 1)
                         {
