@@ -350,12 +350,22 @@ namespace AA.Objects.AL.Integration.PerPackage
                         WriteDiagnostic("[CHECKBOX-VERIFY] ⚠️ WARNING: verifyPackage is null after selecting LineNbr={0}", selectedPackageLineNbr);
                     }
 
-                    object selectedLabelRow = verifyPackage ?? packageToVerify;
+                    SOPackageDetailEx selectedLabelRow = verifyPackage ?? packageToVerify;
+
+                    // A bare DAC is converted by Asgard through a reflective List<object>
+                    // path that can produce a PXResult with no main row. Supplying an
+                    // already typed result set bypasses that conversion and gives
+                    // PXResult.UnwrapMain a valid SOPackageDetailEx during printing.
+                    PXResultset<SOPackageDetailEx> selectedLabelRows =
+                        new PXResultset<SOPackageDetailEx>
+                        {
+                            new PXResult<SOPackageDetailEx>(selectedLabelRow)
+                        };
 
                     AcuLabelContext printContext = AcuLabelContext.CreateSingleRowPrintContext(
                         _graph.GetType(),
                         shipment,
-                        selectedLabelRow,
+                        selectedLabelRows,
                         modelId,
                         shipment.CustomerID);
 
@@ -772,8 +782,9 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             ALModel selectedModel = matchingModels[0];
             PXTrace.WriteInformation(
-                "[MODEL-SELECT-NATIVE] Selected model {0} (ID: {1})",
+                "[MODEL-SELECT-NATIVE] Selected model {0}, View={1}, ID={2}",
                 selectedModel.Name,
+                selectedModel.BasedOnView ?? "<null>",
                 selectedModel.LabelID);
 
             return selectedModel.LabelID;
