@@ -824,11 +824,41 @@ namespace AA.Objects.AL.Integration.PerPackage
 
             if (matchingModels.Count > 1)
             {
-                throw new PXException(
-                    "Multiple Asgard package label models matched shipment {0}, package {1}: {2}.",
-                    shipment.ShipmentNbr,
-                    selectedPackage.LineNbr,
-                    string.Join(", ", matchingModels.Select(m => m.Name)));
+                List<ALModel> uccModels = matchingModels
+                    .Where(m => !string.IsNullOrWhiteSpace(m.Description)
+                        && m.Description.IndexOf(
+                            "UCC",
+                            StringComparison.OrdinalIgnoreCase) >= 0)
+                    .ToList();
+
+                if (uccModels.Count == 1)
+                {
+                    PXTrace.WriteInformation(
+                        "[MODEL-SELECT-NATIVE] Multiple rule matches; selected the only " +
+                        "model whose Description contains UCC: {0}",
+                        uccModels[0].Name);
+                    matchingModels = uccModels;
+                }
+                else if (uccModels.Count == 0)
+                {
+                    throw new PXException(
+                        "Multiple Asgard package label models matched shipment {0}, package {1}, " +
+                        "but none has a Description containing 'UCC': {2}. " +
+                        "Mark exactly one intended UCC model in its Description.",
+                        shipment.ShipmentNbr,
+                        selectedPackage.LineNbr,
+                        string.Join(", ", matchingModels.Select(m => m.Name)));
+                }
+                else
+                {
+                    throw new PXException(
+                        "Multiple Asgard package label models matched shipment {0}, package {1}, " +
+                        "and more than one has a Description containing 'UCC': {2}. " +
+                        "Only one matching model may be marked as UCC.",
+                        shipment.ShipmentNbr,
+                        selectedPackage.LineNbr,
+                        string.Join(", ", uccModels.Select(m => m.Name)));
+                }
             }
 
             ALModel selectedModel = matchingModels[0];
