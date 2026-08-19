@@ -351,6 +351,10 @@ namespace AA.Objects.AL.Integration.PerPackage
                     }
 
                     SOPackageDetailEx selectedLabelRow = verifyPackage ?? packageToVerify;
+                    object selectedUccValue = _graph.Packages.Cache.GetValue(
+                        selectedLabelRow,
+                        "UsrTCUCC128");
+                    string selectedUccForTrace = selectedUccValue?.ToString() ?? "<null>";
 
                     // A bare DAC is converted by Asgard through a reflective List<object>
                     // path that can produce a PXResult with no main row. Supplying an
@@ -397,6 +401,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     // row exposed by the model's actual BasedOnView. This determines whether
                     // an unfiltered native Packages view is redirecting the label to its top row.
                     string firstPackageFromModelView = "<not available>";
+                    string firstUccFromModelView = "<not available>";
                     try
                     {
                         string modelViewName = printContext.Model.BasedOnView;
@@ -413,6 +418,16 @@ namespace AA.Objects.AL.Integration.PerPackage
                                     PXResult.Unwrap<SOPackageDetail>(modelRow);
                                 firstPackageFromModelView = packageFromView?.LineNbr?.ToString()
                                     ?? "<row has no package>";
+
+                                if (packageFromView != null)
+                                {
+                                    PXCache packageFromViewCache =
+                                        printContext.Graph.Caches[packageFromView.GetType()];
+                                    object viewUccValue = packageFromViewCache.GetValue(
+                                        packageFromView,
+                                        "UsrTCUCC128");
+                                    firstUccFromModelView = viewUccValue?.ToString() ?? "<null>";
+                                }
                                 break;
                             }
                         }
@@ -424,6 +439,7 @@ namespace AA.Objects.AL.Integration.PerPackage
                     catch (Exception viewProbeEx)
                     {
                         firstPackageFromModelView = "<probe error: " + viewProbeEx.Message + ">";
+                        firstUccFromModelView = "<probe error>";
                     }
 
                     // Filter ensures Asgard gets only the selected package row
@@ -438,13 +454,16 @@ namespace AA.Objects.AL.Integration.PerPackage
 
                         PXTrace.WriteInformation(
                             "[ASGARD-PRINT] Complete: Labels={0}, RequestedPackage={1}, " +
-                            "ContextPackage={2}, Model={3}, View={4}, ViewFirstPackage={5}",
+                            "ContextPackage={2}, SelectedUCC={3}, Model={4}, View={5}, " +
+                            "ViewFirstPackage={6}, ViewFirstUCC={7}",
                             results.NbLabels,
                             selectedPackageLineNbr,
                             selectedLabelRow.LineNbr,
+                            selectedUccForTrace,
                             printContext.Model.Name,
                             printContext.Model.BasedOnView ?? "<null>",
-                            firstPackageFromModelView);
+                            firstPackageFromModelView,
+                            firstUccFromModelView);
                         
                         if (results.NbLabels == 1)
                         {

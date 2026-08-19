@@ -45,7 +45,7 @@ namespace AA.Objects.AL.Integration.PerPackage
             // Filter every package view currently used by an Asgard shipment model.
             // The delegate returns all rows unless ALPackagesFilterScope is active,
             // so the normal shipment screen continues to use the complete Packages view.
-            FilterViewIfExists("Packages");
+            // FilterViewIfExists("Packages");
             FilterViewIfExists("ALPackages");
             FilterViewIfExists("ALiStarPackages");
         }
